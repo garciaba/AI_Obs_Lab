@@ -267,4 +267,19 @@ def destroy() -> list[str]:
         if getattr(e, "name", "").startswith(f"{PREFIX}-"):
             client.evaluators.delete(evaluator=_id(e), space=space)
             actions.append(f"evaluador {e.name}: borrado")
+    # "Sin dejar rastro": también el dataset (con sus experimentos) y el proyecto de trazas.
+    from wonder_evals.dataset import DATASET_NAME
+
+    for what, delete in (
+        (
+            f"dataset {DATASET_NAME}",
+            lambda: client.datasets.delete(dataset=DATASET_NAME, space=space),
+        ),
+        (f"proyecto {project}", lambda: client.projects.delete(project=project, space=space)),
+    ):
+        try:
+            delete()
+            actions.append(f"{what}: borrado")
+        except Exception as exc:  # noqa: BLE001 - puede no existir
+            actions.append(f"{what}: no se borró ({type(exc).__name__})")
     return actions

@@ -41,7 +41,7 @@ tasks:
       - "{{.COMPOSE}} --profile tools down --remove-orphans"
 
   destroy:
-    desc: "Deshace todo en orden inverso: evals de AX, Dynatrace, pipeline, contenedores y volúmenes, AWS, estado local"
+    desc: "Deshace todo en orden inverso: AX (tareas, evaluadores, dataset, proyecto), Dynatrace, pipeline, contenedores y volúmenes, AWS, estado local"
     prompt: Esto borra los recursos del lab en Arize AX, Dynatrace y AWS, y todos los datos locales. ¿Continuar?
     cmds:
       - task: prepare
@@ -57,7 +57,7 @@ tasks:
         ignore_error: true
       - rm -rf .lab evals/results
       - for d in {{.TF_MODULES}}; do rm -rf "$d/.terraform" "$d"/terraform.tfstate*; done
-      - echo "Lab destruido. El dataset y los experimentos de AX se conservan como histórico (bórralos en AX si no los quieres); .env sigue en tu disco."
+      - echo 'Lab destruido. No quedan recursos en AX, Dynatrace, Bindplane ni AWS, ni datos locales. Tu .env sigue en tu disco.'
 
   status:
     desc: Estado de los contenedores y direcciones útiles

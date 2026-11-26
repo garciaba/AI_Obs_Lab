@@ -28,3 +28,6 @@ dist/
 # Otros
 .DS_Store
 .task/
+
+# Resultados locales de experimentos y puertas
+evals/results/
