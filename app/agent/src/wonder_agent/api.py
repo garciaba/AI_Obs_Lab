@@ -3,7 +3,7 @@
   POST   /chat              un turno de conversación (JSON, sin streaming)
   GET    /health            estado del agente
   GET    /admin/overrides   ajustes en caliente vigentes
-  PUT    /admin/overrides   cambia modelo del supervisor o límites de recursión (con TTL)
+  PUT    /admin/overrides   cambia modelo del supervisor, versión de prompt o límites (con TTL)
   DELETE /admin/overrides   vuelve a la configuración de arranque
 
 La telemetría se configura al importar este módulo, antes de cargar LangChain.
@@ -115,6 +115,7 @@ def create_app(service: AgentService | None = None) -> FastAPI:
             "llm_provider": svc.settings.llm_provider,
             "supervisor_model": svc.supervisor_model_id,
             "subagent_model": svc.settings.subagent_model,
+            "prompt_version": svc.prompt_version,
             **svc.overrides.to_dict(),
         }
 

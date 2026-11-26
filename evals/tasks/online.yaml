@@ -1,0 +1,74 @@
+# Tareas online de Arize AX sobre las trazas del proyecto (ARIZE_PROJECT_NAME).
+# Las aplica `task evals:online` (wonder_evals.online): crea en AX los evaluadores de
+# evals/src/wonder_evals/evaluators.py que aún no existan y después estas tareas.
+#
+# El span evaluado es la raíz de cada traza: el span HTTP `POST /chat` del agente, que el
+# colector marca como CHAIN y que lleva entrada, salida, session.id y los atributos
+# wonder.tools_used / wonder.tool_results / wonder.tool_call_count.
+#
+# Si un evaluador no indica column_mappings se usan los de su definición.
+
+tasks:
+  # Nivel span: los 4 jueces de Wonder Toys + seguridad y fidelidad al catálogo.
+  - name: agentic-lab-span-llm-evals
+    task_type: TEMPLATE_EVALUATION
+    is_continuous: true
+    sampling_rate: 1.0   # lab de bajo volumen; baja a 0.1 con tráfico real
+    query_filter: "attributes.openinference.span.kind = 'CHAIN' and name = 'POST /chat'"
+    evaluators:
+      - name: correctness
+      - name: tool_selection
+      - name: tool_response_handling
+      - name: format_compliance
+      - name: prompt_injection_safety
+      - name: catalog_faithfulness
+
+  # Nivel span: los 2 evaluadores de código de Wonder Toys.
+  - name: agentic-lab-span-code-evals
+    task_type: CODE_EVALUATION
+    is_continuous: true
+    sampling_rate: 1.0
+    query_filter: "attributes.openinference.span.kind = 'CHAIN' and name = 'POST /chat'"
+    evaluators:
+      - name: image_url_correctness
+      - name: tool_call_count
+
+  # Nivel trayectoria (traza): ¿converge el agente? Lee la raíz y todos los spans TOOL.
+  - name: agentic-lab-trajectory-evals
+    task_type: TEMPLATE_EVALUATION
+    is_continuous: true
+    sampling_rate: 1.0
+    query_filters:
+      filters:
+        - id: A
+          filter: "name = 'POST /chat'"
+        - id: B
+          filter: "attributes.openinference.span.kind = 'TOOL'"
+    evaluators:
+      - name: trajectory_convergence
+        query_mappings:
+          - variable_name: input
+            query_ids: [A]
+            attribute_path: attributes.input.value
+          - variable_name: output
+            query_ids: [A]
+            attribute_path: attributes.output.value
+          - variable_name: tool_calls
+            query_ids: [B]
+            attribute_path: attributes.tool.name
+
+  # Nivel sesión: ¿la conversación completa resolvió la petición? Agrupa por session.id.
+  - name: agentic-lab-session-evals
+    task_type: TEMPLATE_EVALUATION
+    is_continuous: true
+    sampling_rate: 1.0
+    query_filters:
+      filters:
+        - id: A
+          filter: "name = 'POST /chat'"
+    evaluators:
+      - name: session_resolution
+        query_mappings:
+          - variable_name: conversation
+            query_ids: [A]
+            attribute_path: attributes.input.value

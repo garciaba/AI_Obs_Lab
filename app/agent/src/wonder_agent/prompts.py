@@ -94,3 +94,22 @@ Rules:
 - If the task lacks something required (for example the shipping address), do not call the tool: say exactly what is missing.
 - Report exactly what the tools returned: order IDs, totals, items, statuses and any error message. If a tool fails, report the failure and do not retry more than once.
 - Be concise: no greetings."""
+
+
+def _without_formatting(prompt: str) -> str:
+    start = prompt.index("## Formatting Product Information")
+    end = prompt.index("## Guidelines")
+    return prompt[:start] + "Answer in plain text, as briefly as possible.\n\n" + prompt[end:]
+
+
+# Variantes del prompt del supervisor. `v2-plain` quita a propósito las reglas de formato:
+# es el "cambio de prompt" con el que la puerta de la fase 3 demuestra que un experimento
+# detecta la diferencia (cae Format Compliance).
+SUPERVISOR_PROMPTS = {
+    "v1": SUPERVISOR_PROMPT,
+    "v2-plain": _without_formatting(SUPERVISOR_PROMPT),
+}
+
+
+def supervisor_prompt(version: str) -> str:
+    return SUPERVISOR_PROMPTS.get(version, SUPERVISOR_PROMPT)

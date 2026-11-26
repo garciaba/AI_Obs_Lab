@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import time
 import uuid
@@ -86,6 +87,10 @@ class AgentService:
     def _supervisor_model(self):
         return get_model(self.settings, self.supervisor_model_id, "supervisor")
 
+    @property
+    def prompt_version(self) -> str:
+        return self.overrides.get("prompt_version", PROMPT_VERSION)
+
     def _subagent_limit(self) -> int:
         return self.overrides.get(
             "subagent_recursion_limit", self.settings.subagent_recursion_limit
@@ -114,6 +119,7 @@ class AgentService:
             tools=self._tools or [],
             checkpointer=checkpointer,
             subagent_recursion_limit=self._subagent_limit,
+            prompt_version=lambda: self.prompt_version,
         )
         return graph
 
@@ -207,7 +213,7 @@ class AgentService:
             "recursion_limit": self.overrides.get(
                 "supervisor_recursion_limit", self.settings.supervisor_recursion_limit
             ),
-            "metadata": {"prompt_version": PROMPT_VERSION, **(metadata or {})},
+            "metadata": {"prompt_version": self.prompt_version, **(metadata or {})},
         }
         graph_input = {"messages": lc_messages, "user_id": user_id, "tool_events": None}
         state: dict = {}
@@ -216,7 +222,7 @@ class AgentService:
                 session_id=session_id,
                 user_id=user_id,
                 metadata={
-                    "prompt_version": PROMPT_VERSION,
+                    "prompt_version": self.prompt_version,
                     "supervisor_model": supervisor_model,
                     **(metadata or {}),
                 },
@@ -255,7 +261,18 @@ class AgentService:
                 {
                     "output.value": result.answer,
                     "wonder.tool_call_count": len(result.tool_calls),
+                    # Para las evals online de AX sobre el span raíz: qué herramientas se
+                    # usaron y qué devolvieron (contexto de fidelidad al catálogo).
+                    "wonder.tools_used": ",".join(c["tool"] for c in result.tool_calls),
+                    "wonder.tool_results": json.dumps(
+                        [
+                            {"tool": c["tool"], "args": c.get("args"), "output": c.get("output")}
+                            for c in result.tool_calls
+                        ],
+                        ensure_ascii=False,
+                    )[:12000],
                     "wonder.supervisor_model": supervisor_model,
+                    "wonder.prompt_version": self.prompt_version,
                     "wonder.degraded": result.degraded,
                 }
             )

@@ -28,7 +28,12 @@ from langgraph.graph import END, START, MessagesState, StateGraph
 from langgraph.prebuilt import ToolNode, create_react_agent
 from langgraph.types import Send
 
-from wonder_agent.prompts import CATALOG_AGENT_PROMPT, ORDERS_AGENT_PROMPT, SUPERVISOR_PROMPT
+from wonder_agent.prompts import (
+    CATALOG_AGENT_PROMPT,
+    ORDERS_AGENT_PROMPT,
+    PROMPT_VERSION,
+    supervisor_prompt,
+)
 
 logger = logging.getLogger("wonder_agent.graph")
 
@@ -104,6 +109,7 @@ def build_graph(
     tools: Sequence[BaseTool],
     checkpointer: Any,
     subagent_recursion_limit: Callable[[], int],
+    prompt_version: Callable[[], str] = lambda: PROMPT_VERSION,
 ):
     """Compila el grafo. `supervisor_model` y `subagent_recursion_limit` son funciones
     para que los ajustes en caliente de los escenarios se apliquen sin reiniciar."""
@@ -129,7 +135,10 @@ def build_graph(
     async def supervisor(state: LabState, config: RunnableConfig) -> dict:
         model = supervisor_model().bind_tools(HANDOFF_TOOLS)
         context = SystemMessage(
-            content=f"{SUPERVISOR_PROMPT}\n\nThe current user's ID is: {state['user_id']}."
+            content=(
+                f"{supervisor_prompt(prompt_version())}\n\n"
+                f"The current user's ID is: {state['user_id']}."
+            )
         )
         response = await model.ainvoke([context, *state["messages"]], config)
         return {"messages": [response]}

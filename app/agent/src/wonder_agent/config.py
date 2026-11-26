@@ -46,11 +46,16 @@ class Settings:
     )
 
 
-_ALLOWED = {"supervisor_model", "subagent_recursion_limit", "supervisor_recursion_limit"}
+_ALLOWED = {
+    "supervisor_model",
+    "prompt_version",
+    "subagent_recursion_limit",
+    "supervisor_recursion_limit",
+}
 
 
 class RuntimeOverrides:
-    """Ajustes temporales que usan los escenarios `model-swap` y `tool-loop`.
+    """Ajustes temporales: escenarios `model-swap` y `tool-loop`, y versión de prompt.
 
     Caducan solos (TTL): si el runner del escenario se interrumpe, el agente vuelve a su
     configuración de arranque sin intervención.
