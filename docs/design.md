@@ -1,5 +1,7 @@
 # Lab de IA agéntica: Arize AX + Bindplane + Dynatrace — Diseño
 
+> Copia del documento de diseño (fuente de verdad del lab). Los dos diagramas del original se reproducen aquí como texto.
+
 2026-11-26 · @Miguel
 
 ## Objetivo y alcance
@@ -35,7 +37,24 @@ Se eligió lo más estándar en cada capa y lo más ligero para una sola máquin
 
 Todo corre en un único Docker Compose salvo el LLM y los dos backends de observabilidad, que son SaaS.
 
-<!-- EMBED node/fe186a60-6927: arquitectura del lab · 9 componentes, 3 servicios externos -->
+```
+Docker Compose en tu máquina                                   Servicios externos
+┌───────────────────────────────────────────────────────┐
+│ Aplicación agéntica                                   │
+│  Escenarios y carga ──► Agente (LangGraph) ───────────┼──► Amazon Bedrock
+│  (25 peticiones+fallos)  supervisor + 2 subagentes    │    (Claude Sonnet y Haiku)
+│                               │                       │
+│                          Servidor MCP                 │
+│                          5 herramientas               │
+│                           │        │                  │
+│                       ChromaDB   Postgres             │
+│                       (RAG)      (pedidos, sesiones)  │
+│                               │ OTLP/HTTP             │
+│ Pipeline de telemetría        ▼                       │
+│  Bindplane server ──► Colector DBDOT ─────────────────┼──► Arize AX (solo spans de IA, evals)
+│  (config vía OpAMP)   reparte, redacta, muestrea ─────┼──► Dynatrace (todo, prompts redactados)
+└───────────────────────────────────────────────────────┘
+```
 
 El agente llama a Bedrock y al servidor MCP, que accede a ChromaDB y Postgres; todos los servicios envían su telemetría al colector, que Bindplane configura y que reparte hacia Arize AX y Dynatrace.
 
@@ -172,7 +191,13 @@ Seguridad:
 
 Se construye en cinco fases, y no se pasa a la siguiente sin cumplir su puerta. La fase 1 va antes que el agente porque valida el mayor riesgo: que Bindplane pueda repartir la telemetría como pide Arize.
 
-<!-- EMBED node/668d369a-4ac0: plan de construcción · 5 fases, 4 puertas -->
+| Fase | Contenido | Puerta |
+| --- | --- | --- |
+| 0 · Cuentas y accesos | Acceso a Sonnet 5.5 y Haiku 5.5 en Bedrock (EU) e IAM mínima en Terraform. Tenant de Arize AX, token de Dynatrace, licencia de Bindplane, repo y sops | Una llamada a Bedrock responde con el usuario del lab |
+| 1 · Pipeline de telemetría (prueba de concepto) | Bindplane server y colector DBDOT en Compose, configuración con Terraform. Un script mínimo con OpenInference envía trazas, logs y métricas | La misma traza aparece en Arize AX (completa) y en Dynatrace (redactada) |
+| 2 · Agente | Wonder Toys en LangGraph sobre Bedrock: supervisor, 2 subagentes y servidor MCP. ChromaDB con el catálogo, Postgres para pedidos y sesiones | Las 25 peticiones de referencia producen trazas unidas de extremo a extremo |
+| 3 · Evaluaciones | Dataset y experimentos con el SDK de AX, tareas online con el CLI ax. Experimento de regresión en GitHub Actions | Un cambio de prompt muestra su diferencia en un experimento |
+| 4 · Escenarios y demo | 9 escenarios de fallo con task; dashboards y alertas de Dynatrace en Terraform. Una ficha por escenario: qué mirar en Arize AX y en Dynatrace | — |
 
 Cada fase termina con código en el repo y un `task` que la reproduce desde cero.
 
