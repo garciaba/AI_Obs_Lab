@@ -1,0 +1,30 @@
+# Secretos y estado local: nunca en Git
+.env
+.env.*
+!.env.example
+.lab/
+*.agekey
+keys.txt
+secrets.dec.env
+
+# Terraform
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
+!*.tfvars.example
+crash.log
+.terraform.tfstate.lock.info
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+dist/
+
+# Otros
+.DS_Store
+.task/
