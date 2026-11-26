@@ -1,0 +1,5 @@
+# Métricas de contenedores (CPU, memoria, red, E/S) desde el socket de Docker.
+docker_stats:
+  endpoint: unix:///var/run/docker.sock
+  collection_interval: 30s
+  timeout: 10s

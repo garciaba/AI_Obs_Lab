@@ -1,0 +1,9 @@
+# Deja solo la raíz de la traza, y solo si no es ya un span de IA (esos van por la otra rama).
+filter/non-ai-trace-root:
+  error_mode: ignore
+  trace_conditions:
+    - span.parent_span_id != SpanID(0x0000000000000000)
+    - span.attributes["openinference.span.kind"] != nil
+    - span.attributes["gen_ai.operation.name"] != nil
+    - span.attributes["gen_ai.request.model"] != nil
+    - span.attributes["gen_ai.tool.name"] != nil

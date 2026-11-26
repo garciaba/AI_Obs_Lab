@@ -1,0 +1,9 @@
+**
+!pyproject.toml
+!uv.lock
+!app/**
+!evals/**
+!scenarios/**
+**/__pycache__
+**/tests
+**/.pytest_cache

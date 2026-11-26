@@ -1,0 +1,19 @@
+# Rama Dynatrace: se conservan los spans de IA (árbol de traza sin huecos) pero sin el
+# contenido de prompts y respuestas, que vive en Arize. Quedan modelo, tokens, nombre de
+# herramienta y tiempos. Incluye los documentos del span RETRIEVER y los eventos de log
+# de mensajes.
+transform/redact-ai-content:
+  error_mode: ignore
+  trace_statements:
+    - delete_key(span.attributes, "input.value")
+    - delete_key(span.attributes, "output.value")
+    - delete_key(span.attributes, "llm.prompt_template.variables")
+    - delete_key(span.attributes, "llm.tools")
+    - delete_matching_keys(span.attributes, "^llm\\.(input|output)_messages\\.")
+    - delete_matching_keys(span.attributes, "^llm\\.prompts?\\.")
+    - delete_matching_keys(span.attributes, "^llm\\.tools\\.")
+    - delete_matching_keys(span.attributes, "^retrieval\\.documents\\..*\\.content$")
+    - delete_matching_keys(span.attributes, "^gen_ai\\.(input|output)\\.messages$")
+    - delete_key(span.attributes, "gen_ai.system_instructions")
+    - delete_key(span.attributes, "gen_ai.tool.definitions")
+    - delete_matching_keys(span.attributes, "^gen_ai\\.tool\\.call\\.(arguments|result)$")

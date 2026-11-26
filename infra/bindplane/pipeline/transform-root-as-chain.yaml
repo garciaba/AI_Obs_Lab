@@ -1,0 +1,6 @@
+# Marca la raíz (el span HTTP del agente) como CHAIN de OpenInference: Arize lista las
+# trazas por su span raíz.
+transform/root-as-chain:
+  error_mode: ignore
+  trace_statements:
+    - set(span.attributes["openinference.span.kind"], "CHAIN")

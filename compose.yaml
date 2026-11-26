@@ -1,0 +1,274 @@
+# Lab de IA agéntica: todo corre aquí salvo Bedrock, Arize AX y Dynatrace (SaaS).
+#
+# No se arranca con `docker compose up` a secas: `task up` impone el orden que exige el
+# diseño (Bindplane server → terraform apply sobre Bindplane → colector y aplicación).
+#
+# Variables: `.env` (ver .env.example) y `.lab/bindplane.env` (lo genera `task up`).
+# Solo se publican en localhost la API del agente (8080) y la consola de Bindplane (3001).
+
+name: agentic-lab
+
+x-app-env: &app-env
+  OTEL_EXPORTER_OTLP_ENDPOINT: http://collector:4318
+  OTEL_EXPORTER_OTLP_PROTOCOL: http/protobuf
+  OTEL_METRIC_EXPORT_INTERVAL: "15000"
+  # OpenInference emite además los atributos gen_ai.* (AI Observability de Dynatrace).
+  OPENINFERENCE_ENABLE_GENAI_SEMCONV: "true"
+  LAB_ENVIRONMENT: agentic-lab
+  LOG_LEVEL: ${LOG_LEVEL:-INFO}
+
+# Cada línea de log lleva el servicio de compose (lo usa la fuente de logs de Docker).
+x-logging: &logging
+  driver: json-file
+  options:
+    labels: com.docker.compose.service,com.docker.compose.project
+    max-size: 10m
+    max-file: "3"
+
+x-app-build: &app-build
+  context: .
+  dockerfile: Dockerfile
+
+services:
+  # ───────────────────────────── Pipeline de telemetría ─────────────────────────────
+  bindplane:
+    logging: *logging
+    image: ghcr.io/observiq/bindplane-ee:1.105.0
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:3001:3001"
+    environment:
+      BINDPLANE_LICENSE: ${BINDPLANE_LICENSE:?define BINDPLANE_LICENSE en .env}
+      BINDPLANE_USERNAME: ${BINDPLANE_ADMIN_USER:?define BINDPLANE_ADMIN_USER en .env}
+      BINDPLANE_PASSWORD: ${BINDPLANE_ADMIN_PASSWORD:?define BINDPLANE_ADMIN_PASSWORD en .env}
+      BINDPLANE_SESSION_SECRET: ${BINDPLANE_SESSION_SECRET:?lo genera task up en .lab/bindplane.env}
+      # URL con la que el colector (misma red de compose) alcanza al servidor.
+      BINDPLANE_REMOTE_URL: http://bindplane:3001
+      BINDPLANE_ACCEPT_EULA: "true"
+      BINDPLANE_LOGGING_OUTPUT: stdout
+      BINDPLANE_ANALYTICS_DISABLED: "true"
+      BINDPLANE_PROMETHEUS_ENABLE: "true"
+      BINDPLANE_PROMETHEUS_ENABLE_REMOTE: "true"
+      BINDPLANE_PROMETHEUS_HOST: bindplane-prometheus
+      BINDPLANE_PROMETHEUS_PORT: "9090"
+      BINDPLANE_TRANSFORM_AGENT_ENABLE_REMOTE: "true"
+      BINDPLANE_TRANSFORM_AGENT_REMOTE_AGENTS: bindplane-transform:4568
+      BINDPLANE_STORE_TYPE: postgres
+      BINDPLANE_POSTGRES_HOST: bindplane-postgres
+      BINDPLANE_POSTGRES_PORT: "5432"
+      BINDPLANE_POSTGRES_DATABASE: bindplane
+      BINDPLANE_POSTGRES_USERNAME: bindplane
+      BINDPLANE_POSTGRES_PASSWORD: bindplane
+    depends_on:
+      bindplane-postgres:
+        condition: service_healthy
+      bindplane-prometheus:
+        condition: service_started
+      bindplane-transform:
+        condition: service_started
+    deploy:
+      resources:
+        limits:
+          memory: 4g
+
+  bindplane-postgres:
+    logging: *logging
+    image: postgres:16.16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: bindplane
+      POSTGRES_USER: bindplane
+      POSTGRES_PASSWORD: bindplane
+    volumes:
+      - bindplane-postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U bindplane -d bindplane"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  bindplane-prometheus:
+    logging: *logging
+    image: ghcr.io/observiq/bindplane-prometheus:1.105.0
+    restart: unless-stopped
+    volumes:
+      - bindplane-prometheus:/prometheus
+
+  bindplane-transform:
+    logging: *logging
+    image: ghcr.io/observiq/bindplane-transform-agent:1.105.0-bindplane
+    restart: unless-stopped
+
+  # Colector DBDOT gestionado por Bindplane vía OpAMP. Arranca con una configuración
+  # vacía; la real (infra/bindplane) llega del servidor y nunca se edita en el contenedor.
+  collector:
+    logging: *logging
+    image: ${DBDOT_IMAGE:-ghcr.io/dynatrace/dynatrace-bindplane-otel-collector:1.4.2}
+    restart: unless-stopped
+    # root: necesita leer los logs de Docker y el socket para las métricas de contenedor.
+    user: "0:0"
+    environment:
+      OPAMP_ENDPOINT: ws://bindplane:3001/v1/opamp
+      OPAMP_SECRET_KEY: ${BINDPLANE_SECRET_KEY:?lo genera task up en .lab/bindplane.env}
+      OPAMP_AGENT_NAME: agentic-lab-collector
+      # La etiqueta `configuration` enlaza el colector con la configuración de Bindplane.
+      OPAMP_LABELS: configuration=${BINDPLANE_CONFIGURATION:-agentic-lab},lab=agentic-lab
+    volumes:
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    depends_on:
+      bindplane:
+        condition: service_started
+    deploy:
+      resources:
+        limits:
+          memory: 1g
+
+  # ───────────────────────────── Aplicación agéntica ─────────────────────────────
+  postgres:
+    logging: *logging
+    image: postgres:17.12-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: wonder
+      POSTGRES_USER: wonder
+      POSTGRES_PASSWORD: wonder
+    volumes:
+      - app-postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U wonder -d wonder"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  chroma:
+    logging: *logging
+    image: chromadb/chroma:1.5.9
+    restart: unless-stopped
+    environment:
+      ANONYMIZED_TELEMETRY: "false"
+    volumes:
+      - chroma-data:/data
+
+  # Carga única: esquema y catálogo en Postgres, catálogo vectorial en ChromaDB.
+  seed:
+    logging: *logging
+    image: agentic-lab/mcp-server:${LAB_VERSION:-0.1.0}
+    build:
+      <<: *app-build
+      args:
+        PACKAGES: "wonder-mcp wonder-seed"
+        PRELOAD_EMBEDDINGS: "true"
+    command: ["wonder-seed"]
+    restart: "no"
+    environment:
+      DATABASE_URL: postgresql://wonder:wonder@postgres:5432/wonder
+      CHROMA_URL: http://chroma:8000
+      ANONYMIZED_TELEMETRY: "false"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      chroma:
+        condition: service_started
+
+  mcp-server:
+    logging: *logging
+    image: agentic-lab/mcp-server:${LAB_VERSION:-0.1.0}
+    build:
+      <<: *app-build
+      args:
+        PACKAGES: "wonder-mcp wonder-seed"
+        PRELOAD_EMBEDDINGS: "true"
+    command: ["python", "-m", "wonder_mcp.server"]
+    restart: unless-stopped
+    environment:
+      <<: *app-env
+      OTEL_SERVICE_NAME: wonder-toys-mcp
+      DATABASE_URL: postgresql://wonder:wonder@postgres:5432/wonder
+      CHROMA_URL: http://chroma:8000
+      ANONYMIZED_TELEMETRY: "false"
+    depends_on:
+      seed:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request as u; u.urlopen('http://localhost:8000/health', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 20s
+
+  agent:
+    logging: *logging
+    image: agentic-lab/agent:${LAB_VERSION:-0.1.0}
+    build:
+      <<: *app-build
+      args:
+        PACKAGES: "wonder-agent"
+    command: ["python", "-m", "wonder_agent.api"]
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8080:8080"
+    environment:
+      <<: *app-env
+      OTEL_SERVICE_NAME: wonder-toys-agent
+      LLM_PROVIDER: ${LLM_PROVIDER:-bedrock}
+      AWS_REGION: ${AWS_REGION:-eu-west-1}
+      # Credenciales del usuario IAM mínimo del lab (las escribe `task up` desde Terraform).
+      AWS_SHARED_CREDENTIALS_FILE: /aws/credentials
+      AWS_PROFILE: ${LAB_AWS_PROFILE:-agentic-lab}
+      SUPERVISOR_MODEL_ID: ${SUPERVISOR_MODEL_ID:-eu.anthropic.claude-sonnet-5-5}
+      SUBAGENT_MODEL_ID: ${SUBAGENT_MODEL_ID:-eu.anthropic.claude-haiku-5-5}
+      PROMPT_VERSION: ${PROMPT_VERSION:-v1}
+      MCP_URL: http://mcp-server:8000/mcp
+      DATABASE_URL: postgresql://wonder:wonder@postgres:5432/wonder
+    volumes:
+      - ${LAB_AWS_DIR:-./.lab/aws}:/aws:ro
+    depends_on:
+      mcp-server:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request as u; u.urlopen('http://localhost:8080/health', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 20s
+
+  # Herramientas del lab (escenarios, evals, puertas). No arranca con `up`:
+  #   docker compose run --rm tools <comando>      (lo hace el Taskfile)
+  tools:
+    logging: *logging
+    image: agentic-lab/tools:${LAB_VERSION:-0.1.0}
+    build:
+      <<: *app-build
+      args:
+        PACKAGES: "wonder-evals wonder-scenarios"
+    profiles: ["tools"]
+    environment:
+      <<: *app-env
+      OTEL_SERVICE_NAME: wonder-toys-lab-tools
+      AGENT_URL: http://agent:8080
+      MCP_ADMIN_URL: http://mcp-server:8000
+      AWS_REGION: ${AWS_REGION:-eu-west-1}
+      AWS_SHARED_CREDENTIALS_FILE: /aws/credentials
+      AWS_PROFILE: ${LAB_AWS_PROFILE:-agentic-lab}
+      SUPERVISOR_MODEL_ID: ${SUPERVISOR_MODEL_ID:-eu.anthropic.claude-sonnet-5-5}
+      SUBAGENT_MODEL_ID: ${SUBAGENT_MODEL_ID:-eu.anthropic.claude-haiku-5-5}
+      JUDGE_MODEL_ID: ${JUDGE_MODEL_ID:-eu.anthropic.claude-haiku-5-5}
+      ARIZE_SPACE_ID: ${ARIZE_SPACE_ID:-}
+      ARIZE_API_KEY: ${ARIZE_API_KEY:-}
+      ARIZE_PROJECT_NAME: ${ARIZE_PROJECT_NAME:-agentic-lab}
+      ARIZE_REGION: ${ARIZE_REGION:-}
+      DT_ENV_URL: ${DT_ENV_URL:-}
+      DT_QUERY_TOKEN: ${DT_QUERY_TOKEN:-}
+      PROMPT_VERSION: ${PROMPT_VERSION:-v1}
+    volumes:
+      - ${LAB_AWS_DIR:-./.lab/aws}:/aws:ro
+      - ./evals/results:/home/app/results
+
+volumes:
+  bindplane-postgres:
+  bindplane-prometheus:
+  app-postgres:
+  chroma-data:

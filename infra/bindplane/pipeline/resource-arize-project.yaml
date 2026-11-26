@@ -1,0 +1,6 @@
+# Arize agrupa las trazas por proyecto. "insert" no pisa el valor si la app ya lo puso.
+resource/arize-project:
+  attributes:
+    - key: openinference.project.name
+      value: ${ARIZE_PROJECT_NAME}
+      action: insert

@@ -1,0 +1,81 @@
+# Logs de contenedores: ficheros json-file de Docker leídos por el colector.
+# compose.yaml añade a cada línea la etiqueta del servicio (log-opt `labels`), de ahí sale
+# docker.compose.service; el id del contenedor sale de la ruta del fichero. Si la línea es
+# el JSON que emiten los servicios Python, se extraen nivel y trace_id/span_id para que el
+# log quede enlazado con su traza en Dynatrace.
+filelog/docker:
+  include:
+    - /var/lib/docker/containers/*/*-json.log
+  start_at: end
+  include_file_path: true
+  include_file_name: false
+  operators:
+    - type: json_parser
+      id: docker-envelope
+      timestamp:
+        parse_from: attributes.time
+        layout_type: gotime
+        layout: "2006-01-02T15:04:05.999999999Z07:00"
+    - type: regex_parser
+      id: container-id
+      parse_from: attributes["log.file.path"]
+      regex: 'containers/(?P<container_id>[0-9a-f]{64})/'
+    - type: move
+      from: attributes.container_id
+      to: resource["container.id"]
+    - type: move
+      if: 'attributes.attrs != nil and attributes.attrs["com.docker.compose.service"] != nil'
+      from: attributes.attrs["com.docker.compose.service"]
+      to: resource["docker.compose.service"]
+    - type: move
+      if: 'attributes.attrs != nil and attributes.attrs["com.docker.compose.project"] != nil'
+      from: attributes.attrs["com.docker.compose.project"]
+      to: resource["docker.compose.project"]
+    - type: remove
+      if: 'attributes.attrs != nil'
+      field: attributes.attrs
+    - type: remove
+      field: attributes.time
+    - type: move
+      from: attributes.stream
+      to: attributes["log.iostream"]
+    - type: move
+      from: attributes.log
+      to: body
+    - type: json_parser
+      id: app-json
+      if: 'body matches "^\\s*\\{"'
+      parse_from: body
+      parse_to: attributes
+      on_error: send_quiet
+      severity:
+        parse_from: attributes.level
+        on_error: send_quiet
+      trace:
+        trace_id:
+          parse_from: attributes.trace_id
+        span_id:
+          parse_from: attributes.span_id
+    # El mensaje pasa a ser el cuerpo; trace_id/span_id ya están en el registro (dejarlos
+    # también como atributos haría que Dynatrace los guardase por duplicado).
+    - type: move
+      if: 'attributes.message != nil'
+      from: attributes.message
+      to: body
+    - type: remove
+      if: 'attributes.trace_id != nil'
+      field: attributes.trace_id
+    - type: remove
+      if: 'attributes.span_id != nil'
+      field: attributes.span_id
+    - type: remove
+      if: 'attributes.ts != nil'
+      field: attributes.ts
+    - type: remove
+      if: 'attributes.level != nil'
+      field: attributes.level
+    - type: add
+      field: attributes["log.source"]
+      value: docker
+    - type: remove
+      field: attributes["log.file.path"]

@@ -1,0 +1,10 @@
+# Rama Arize: descarta todo span que no sea de IA (condición verdadera = se descarta).
+# Arize ingiere también los spans GenAI de OTel (gen_ai.*), así que se conservan.
+filter/ai-spans-only:
+  error_mode: ignore
+  trace_conditions:
+    - >-
+      span.attributes["openinference.span.kind"] == nil and
+      span.attributes["gen_ai.operation.name"] == nil and
+      span.attributes["gen_ai.request.model"] == nil and
+      span.attributes["gen_ai.tool.name"] == nil

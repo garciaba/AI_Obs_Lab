@@ -1,0 +1,21 @@
+# Smoke test sin credenciales (CI y `task test:smoke`):
+#   - el colector gestionado por Bindplane se sustituye por otelcol-contrib con la
+#     configuración de referencia generada desde infra/bindplane/pipeline/, exportando a
+#     ficheros en .lab/smoke/out/ en lugar de a Arize AX y Dynatrace;
+#   - el agente usa el modelo simulado (LLM_PROVIDER=fake en ci/smoke.env).
+# Uso: docker compose --env-file ci/smoke.env -f compose.yaml -f compose.smoke.yaml up ...
+services:
+  collector:
+    image: otel/opentelemetry-collector-contrib:0.165.0
+    command: ["--config=/etc/otelcol/config.yaml"]
+    environment: !reset {}
+    depends_on: !reset {}
+    volumes:
+      - ./.lab/smoke/collector.yaml:/etc/otelcol/config.yaml:ro
+      - ./.lab/smoke/out:/out
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+  agent:
+    depends_on:
+      collector:
+        condition: service_started

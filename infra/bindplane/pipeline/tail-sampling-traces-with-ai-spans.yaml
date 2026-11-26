@@ -1,0 +1,18 @@
+# Rama raíz de Arize: espera a ver la traza entera y solo deja pasar las que contienen
+# algún span de IA. Con estado: todos los spans de una traza deben llegar a este colector.
+tail_sampling/traces-with-ai-spans:
+  decision_wait: 30s
+  num_traces: 50000
+  # Conserva la decisión para raíces que llegan después de decision_wait (peticiones largas).
+  decision_cache:
+    sampled_cache_size: 100000
+  policies:
+    - name: has-ai-span
+      type: ottl_condition
+      ottl_condition:
+        error_mode: ignore
+        span:
+          - attributes["openinference.span.kind"] != nil
+          - attributes["gen_ai.operation.name"] != nil
+          - attributes["gen_ai.request.model"] != nil
+          - attributes["gen_ai.tool.name"] != nil
