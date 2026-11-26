@@ -255,7 +255,11 @@ TRAJECTORY_CONVERGENCE = LlmEvaluator(
     granularity="TRACE",
     description="Trayectoria: ¿el agente convergió hacia la respuesta sin dar vueltas?",
     choices={"converged": 1, "wandering": 0},
-    column_mappings={"input": ROOT_INPUT, "output": ROOT_OUTPUT, "tool_calls": "attributes.tool.name"},
+    column_mappings={
+        "input": ROOT_INPUT,
+        "output": ROOT_OUTPUT,
+        "tool_calls": "attributes.tool.name",
+    },
     template="""You are evaluating the trajectory of a toy store shopping agent: the sequence of tool calls it made to answer one request.
 
 CONVERGED — The sequence is purposeful: each call moves toward answering the request, there are no repeated calls with the same or near-identical purpose, and the agent stopped once it had what it needed. Zero tool calls is fine for a conversational request.
@@ -366,7 +370,7 @@ from arize.experimental.datasets.experiments.evaluators.base import (
 )
 """
 
-AX_IMAGE_URL_CODE = '''class ImageUrlCorrectnessEvaluator(CodeEvaluator):
+AX_IMAGE_URL_CODE = """class ImageUrlCorrectnessEvaluator(CodeEvaluator):
     def evaluate(self, *, output=None, **kwargs) -> EvaluationResult:
         text = str(output or "")
         try:
@@ -382,9 +386,9 @@ AX_IMAGE_URL_CODE = '''class ImageUrlCorrectnessEvaluator(CodeEvaluator):
         if not invalid:
             return EvaluationResult(label="valid", score=1.0, explanation=f"All {len(matches)} image URL(s) use valid local paths")
         return EvaluationResult(label="invalid", score=0.0, explanation=f"{len(invalid)}/{len(matches)} image URL(s) are invalid: {', '.join(invalid)}")
-'''
+"""
 
-AX_TOOL_CALL_COUNT_CODE = '''class ToolCallCountEvaluator(CodeEvaluator):
+AX_TOOL_CALL_COUNT_CODE = """class ToolCallCountEvaluator(CodeEvaluator):
     def evaluate(self, *, input=None, tool_call_count=None, **kwargs) -> EvaluationResult:
         user_query = str(input or "")
         try:
@@ -400,7 +404,7 @@ AX_TOOL_CALL_COUNT_CODE = '''class ToolCallCountEvaluator(CodeEvaluator):
         if tcc > 5:
             return EvaluationResult(label="excessive", score=0.5, explanation=f"{tcc} tool calls may be excessive")
         return EvaluationResult(label="appropriate", score=1.0, explanation=f"{tcc} tool call(s) is reasonable")
-'''
+"""
 
 
 @dataclass(frozen=True)

@@ -1,11 +1,11 @@
 """CLI de las evals del lab.
 
-  wonder-evals dataset push [--recreate]         crea el dataset de regresión en AX
-  wonder-evals experiment run --name N [...]     lanza un experimento (AX o --local)
-  wonder-evals compare A B                       compara dos experimentos locales
-  wonder-evals online apply [--dry-run]          crea evaluadores y tareas online en AX
-  wonder-evals online destroy                    borra evaluadores y tareas del lab en AX
-  wonder-evals gate3 [--local]                   puerta de la fase 3 (cambio de prompt)
+wonder-evals dataset push [--recreate]         crea el dataset de regresión en AX
+wonder-evals experiment run --name N [...]     lanza un experimento (AX o --local)
+wonder-evals compare A B                       compara dos experimentos locales
+wonder-evals online apply [--dry-run]          crea evaluadores y tareas online en AX
+wonder-evals online destroy                    borra evaluadores y tareas del lab en AX
+wonder-evals gate3 [--local]                   puerta de la fase 3 (cambio de prompt)
 """
 
 from __future__ import annotations
@@ -37,7 +37,7 @@ def _print_summary(report: dict) -> None:
         print(f"  {name:28} {mean:>6}   {s['labels']}")
 
 
-def _run(name: str, args, overrides: dict) -> dict | None:
+def _run(name: str, args, overrides: dict) -> dict:
     metadata = {k: str(v) for k, v in overrides.items()}
     with agent_client.overrides(overrides):
         state = agent_client.health()
@@ -46,7 +46,9 @@ def _run(name: str, args, overrides: dict) -> dict | None:
         if args.local:
             rows = dataset_examples(include_scenarios=not args.reference_only)
             report = experiment.run_local(
-                name, rows=rows[: args.limit] if args.limit else rows, metadata=metadata,
+                name,
+                rows=rows[: args.limit] if args.limit else rows,
+                metadata=metadata,
                 concurrency=args.concurrency,
             )
             _print_summary(report)
@@ -55,17 +57,38 @@ def _run(name: str, args, overrides: dict) -> dict | None:
         exp, frame = experiment.run_ax(
             name, metadata=metadata, concurrency=args.concurrency, dry_run=args.dry_run
         )
-        print(f"Experimento {name!r} en Arize AX sobre el dataset {DATASET_NAME!r}: "
-              f"{len(frame)} filas{' (dry-run, no subido)' if exp is None else ''}")
-        scores = [c for c in frame.columns if c.endswith(".score")]
-        if scores:
-            print(frame[scores].mean(numeric_only=True).round(3).to_string())
-        return None
+        # Resumen a partir de las columnas de puntuación que devuelve el SDK.
+        summary = {}
+        for column in frame.columns:
+            if str(column).endswith(".score") or str(column).endswith("_score"):
+                evaluator = (
+                    str(column).removeprefix("eval.").rsplit(".", 1)[0].removesuffix("_score")
+                )
+                values = [
+                    v for v in frame[column].tolist() if isinstance(v, (int, float)) and v == v
+                ]
+                mean = round(sum(values) / len(values), 3) if values else None
+                summary[evaluator] = {"mean": mean, "n": len(values), "labels": {}}
+        report = {
+            "name": name,
+            "judge": "Bedrock (JUDGE_MODEL_ID)",
+            "rows": [None] * len(frame),
+            "summary": summary,
+        }
+        print(
+            f"Experimento {name!r} en Arize AX sobre el dataset {DATASET_NAME!r}"
+            f"{' (dry-run, no subido)' if exp is None else ''}"
+        )
+        _print_summary(report)
+        return report
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(prog="wonder-evals", description=__doc__,
-                                     formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser = argparse.ArgumentParser(
+        prog="wonder-evals",
+        description=__doc__,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
     sub = parser.add_subparsers(dest="command", required=True)
 
     ds = sub.add_parser("dataset").add_subparsers(dest="action", required=True)
@@ -81,11 +104,19 @@ def main() -> None:
         p.add_argument("--dry-run", action="store_true", help="AX: ejecuta sin subir resultados")
         p.add_argument("--concurrency", type=int, default=3)
         p.add_argument("--limit", type=int, default=0, help="solo las N primeras filas (--local)")
-        p.add_argument("--reference-only", action="store_true",
-                       help="solo las 25 peticiones de referencia (--local)")
+        p.add_argument(
+            "--reference-only",
+            action="store_true",
+            help="solo las 25 peticiones de referencia (--local)",
+        )
     run.add_argument("--name", default=None)
-    run.add_argument("--override", action="append", default=[], metavar="CLAVE=VALOR",
-                     help="ajuste en caliente del agente: supervisor_model=..., prompt_version=...")
+    run.add_argument(
+        "--override",
+        action="append",
+        default=[],
+        metavar="CLAVE=VALOR",
+        help="ajuste en caliente del agente: supervisor_model=..., prompt_version=...",
+    )
 
     cmp_ = sub.add_parser("compare")
     cmp_.add_argument("baseline")
@@ -106,8 +137,10 @@ def main() -> None:
         dataset = experiment.ensure_dataset(
             experiment.ax_client(), os.environ["ARIZE_SPACE_ID"], recreate=args.recreate
         )
-        print(f"Dataset {DATASET_NAME!r} listo en AX ({len(dataset_examples())} ejemplos): "
-              f"{getattr(dataset, 'id', '')}")
+        print(
+            f"Dataset {DATASET_NAME!r} listo en AX ({len(dataset_examples())} ejemplos): "
+            f"{getattr(dataset, 'id', '')}"
+        )
     elif args.command == "experiment":
         overrides = _overrides(args.override)
         label = "-".join(str(v).split(".")[-1] for v in overrides.values()) or "baseline"
@@ -116,19 +149,22 @@ def main() -> None:
         # Un cambio de prompt debe mostrar su diferencia en un experimento.
         base = _run(f"gate3-prompt-v1-{stamp}", args, {"prompt_version": "v1"})
         cand = _run(f"gate3-prompt-v2-plain-{stamp}", args, {"prompt_version": "v2-plain"})
-        if base and cand:
-            print("\n" + experiment.format_comparison(base, cand))
-            diffs = [r for r in experiment.compare(base, cand) if r["delta"]]
-            if not diffs:
-                sys.exit("PUERTA 3 NO SUPERADA: el cambio de prompt no movió ningún evaluador")
-            print(f"\nPUERTA 3 OK: {len(diffs)} evaluador(es) cambian con el prompt")
-        else:
-            print("\nPUERTA 3: compara en Arize AX los dos experimentos gate3-prompt-* "
-                  f"del dataset {DATASET_NAME!r} (Experiments → Compare).")
+        print("\n" + experiment.format_comparison(base, cand))
+        diffs = [r for r in experiment.compare(base, cand) if r["delta"]]
+        if not args.local:
+            print(
+                "\nEn Arize AX: dataset "
+                f"{DATASET_NAME!r} → Experiments → compara los dos gate3-prompt-*."
+            )
+        if not diffs:
+            sys.exit("PUERTA 3 NO SUPERADA: el cambio de prompt no movió ningún evaluador")
+        print(f"\nPUERTA 3 OK: {len(diffs)} evaluador(es) cambian con el prompt")
     elif args.command == "compare":
+
         def load(name: str) -> dict:
             path = name if name.endswith(".json") else experiment.RESULTS_DIR / f"{name}.json"
             return json.loads(open(path).read())
+
         print(experiment.format_comparison(load(args.baseline), load(args.candidate)))
     elif args.command == "online":
         if args.action == "apply":

@@ -1,0 +1,18 @@
+name: slow-tool
+title: Herramienta lenta
+summary: El servidor MCP añade 8 s de latencia al seguimiento de pedidos.
+chaos:
+  latency_ms:
+    check-order-status: 8000
+repeat: 4
+requests:
+  - tag: slow-order-status
+    message: "Where's my order?"
+  - tag: slow-order-status-all
+    message: "Can you check the status of all my orders?"
+expect:
+  tool: check-order-status
+  min_latency_s: 8
+look_at:
+  arize: "Span TOOL check-order-status de ~8 s dentro de la traza; el resto de spans, normales."
+  dynatrace: "Latencia del servicio wonder-toys-mcp; alerta 'latencia alta del servidor MCP'."

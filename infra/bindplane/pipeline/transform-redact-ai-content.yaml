@@ -7,6 +7,7 @@ transform/redact-ai-content:
   trace_statements:
     - delete_key(span.attributes, "input.value")
     - delete_key(span.attributes, "output.value")
+    - delete_key(span.attributes, "wonder.tool_results")
     - delete_key(span.attributes, "llm.prompt_template.variables")
     - delete_key(span.attributes, "llm.tools")
     - delete_matching_keys(span.attributes, "^llm\\.(input|output)_messages\\.")

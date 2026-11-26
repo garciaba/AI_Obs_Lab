@@ -1,0 +1,20 @@
+name: tool-loop
+title: Bucle de herramientas
+summary: Límite de recursión alto y una petición ambigua que invita a buscar sin fin.
+overrides:
+  subagent_recursion_limit: 60
+  supervisor_recursion_limit: 40
+repeat: 2
+timeout_s: 900
+requests:
+  - tag: loop-best-toy
+    message: >-
+      Find me the single best toy in the whole store. Check every category and every age
+      range one by one, compare all of them in detail, and keep searching until you are
+      completely sure nothing better exists.
+expect:
+  http_status: 200
+  min_tool_calls: 6
+look_at:
+  arize: "Eval Tool Call Count disparada (excessive) y Trajectory Convergence = wandering."
+  dynatrace: "Tokens, coste y latencia por petición en AI Observability y en el dashboard del lab."

@@ -81,7 +81,11 @@ def evaluate(row: dict, output: dict, judge: Judge) -> dict[str, dict]:
                 "explanation": explanation,
             }
         except Exception as exc:  # noqa: BLE001 - un fallo del juez no tumba el experimento
-            results[evaluator.name] = {"score": None, "label": "judge_error", "explanation": str(exc)}
+            results[evaluator.name] = {
+                "score": None,
+                "label": "judge_error",
+                "explanation": str(exc),
+            }
     score, label, explanation = image_url_correctness(output.get("answer", ""))
     results["image_url_correctness"] = {"score": score, "label": label, "explanation": explanation}
     score, label, explanation = tool_call_count(
@@ -121,7 +125,9 @@ def run_local(
     """Ejecuta el experimento sin Arize y guarda `results/<name>.json`."""
     judge = judge or default_judge()
     rows = rows if rows is not None else dataset_examples()
-    task = task or (lambda row: agent_client.chat(row, metadata={"experiment": name, **(metadata or {})}))
+    task = task or (
+        lambda row: agent_client.chat(row, metadata={"experiment": name, **(metadata or {})})
+    )
 
     def one(row: dict) -> dict:
         started = time.perf_counter()
@@ -166,7 +172,9 @@ def compare(baseline: dict, candidate: dict) -> list[dict]:
 
 
 def format_comparison(baseline: dict, candidate: dict) -> str:
-    lines = [f"{'evaluator':28} {baseline['name'][:18]:>18} {candidate['name'][:18]:>18} {'delta':>8}"]
+    lines = [
+        f"{'evaluator':28} {baseline['name'][:18]:>18} {candidate['name'][:18]:>18} {'delta':>8}"
+    ]
     for r in compare(baseline, candidate):
         fmt = lambda v: "-" if v is None else f"{v:.3f}"  # noqa: E731
         mark = "" if not r["delta"] else ("  ▲" if r["delta"] > 0 else "  ▼")
@@ -241,12 +249,17 @@ def run_ax(
             if key not in cache:
                 cache[key] = evaluate(dict(dataset_row), experiment_output or {}, judge)
             r = cache[key][evaluator_name]
-            return EvaluationResult(score=r["score"], label=r["label"], explanation=r["explanation"])
+            return EvaluationResult(
+                score=r["score"], label=r["label"], explanation=r["explanation"]
+            )
 
         evaluator.__name__ = evaluator_name
         return evaluator
 
-    names = [e.name for e in EXPERIMENT_LLM_EVALUATORS] + ["image_url_correctness", "tool_call_count"]
+    names = [e.name for e in EXPERIMENT_LLM_EVALUATORS] + [
+        "image_url_correctness",
+        "tool_call_count",
+    ]
     return client.experiments.run(
         name=name,
         dataset=DATASET_NAME,

@@ -1,0 +1,18 @@
+name: db-down
+title: Base de datos caída
+summary: Se para el contenedor de Postgres (lo hace `task scenario:db-down` y lo vuelve a arrancar).
+host_action: stop-postgres
+repeat: 3
+requests:
+  - tag: db-down-orders
+    message: "Can you check the status of all my orders?"
+  - tag: db-down-product
+    message: "Tell me everything about toy-001."
+  - tag: db-down-purchase
+    message: "I'd like to buy toy-003. Ship it to John Smith, 456 Oak Ave, Austin, TX 73301, US."
+expect:
+  tool_status: error
+  degraded: true
+look_at:
+  arize: "Fallo de las herramientas y respuesta del agente (¿lo explica sin inventar datos?)."
+  dynatrace: "Spans de base de datos con error en agente y MCP, logs 'database unavailable' y la causa raíz: Postgres."

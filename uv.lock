@@ -2867,14 +2867,20 @@ name = "wonder-scenarios"
 version = "0.1.0"
 source = { editable = "scenarios" }
 dependencies = [
+    { name = "boto3" },
     { name = "httpx" },
+    { name = "labcommon" },
     { name = "pyyaml" },
+    { name = "wonder-evals" },
 ]
 
 [package.metadata]
 requires-dist = [
+    { name = "boto3" },
     { name = "httpx" },
+    { name = "labcommon", editable = "app/common" },
     { name = "pyyaml" },
+    { name = "wonder-evals", editable = "evals" },
 ]
 
 [[package]]

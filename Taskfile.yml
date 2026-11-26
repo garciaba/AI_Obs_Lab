@@ -1,0 +1,284 @@
+# Punto de entrada del lab. `task` (sin argumentos) lista las tareas.
+#
+#   task up        levanta todo en el orden que impone el diseño
+#   task down      para los contenedores (conserva datos y recursos en la nube)
+#   task destroy   lo deshace todo en orden inverso, sin dejar rastro
+#
+# Requisitos: Docker (Compose v2), Terraform, Task >= 3.37, sops + age, uv.
+version: "3"
+
+dotenv: [".env", ".lab/bindplane.env"]
+
+vars:
+  COMPOSE: docker compose --env-file .env --env-file .lab/bindplane.env
+  TOOLS: "{{.COMPOSE}} --profile tools run --rm -T tools"
+  SMOKE: docker compose --env-file ci/smoke.env -f compose.yaml -f compose.smoke.yaml
+  TF_MODULES: infra/aws infra/bindplane infra/dynatrace
+
+tasks:
+  default:
+    silent: true
+    cmds:
+      - task --list
+
+  # ───────────────────────────── Ciclo de vida ─────────────────────────────
+
+  up:
+    desc: "Levanta el lab completo: AWS → imágenes → Bindplane → pipeline → colector y app → Dynatrace"
+    cmds:
+      - task: prepare
+      - task: aws:apply
+      - task: build
+      - task: bindplane:up
+      - task: bindplane:apply
+      - task: app:up
+      - task: dynatrace:apply
+      - task: status
+
+  down:
+    desc: Para los contenedores; conserva volúmenes, estado de Terraform y recursos en la nube
+    cmds:
+      - "{{.COMPOSE}} --profile tools down --remove-orphans"
+
+  destroy:
+    desc: "Deshace todo en orden inverso: evals de AX, Dynatrace, pipeline, contenedores y volúmenes, AWS, estado local"
+    prompt: Esto borra los recursos del lab en Arize AX, Dynatrace y AWS, y todos los datos locales. ¿Continuar?
+    cmds:
+      - task: prepare
+      - cmd: "{{.TOOLS}} wonder-evals online destroy"
+        ignore_error: true
+      - cmd: scripts/tf.sh dynatrace destroy
+        ignore_error: true
+      # El proveedor de Bindplane necesita el servidor en marcha para borrar sus recursos.
+      - cmd: "{{.COMPOSE}} up -d bindplane && scripts/bindplane-bootstrap.sh && scripts/tf.sh bindplane destroy"
+        ignore_error: true
+      - "{{.COMPOSE}} --profile tools down --volumes --remove-orphans --rmi local"
+      - cmd: scripts/tf.sh aws destroy
+        ignore_error: true
+      - rm -rf .lab evals/results
+      - for d in {{.TF_MODULES}}; do rm -rf "$d/.terraform" "$d"/terraform.tfstate*; done
+      - echo "Lab destruido. El dataset y los experimentos de AX se conservan como histórico (bórralos en AX si no los quieres); .env sigue en tu disco."
+
+  status:
+    desc: Estado de los contenedores y direcciones útiles
+    silent: true
+    cmds:
+      - "{{.COMPOSE}} ps --format 'table {{`{{.Service}}`}}\t{{`{{.Status}}`}}'"
+      - |
+        echo
+        echo "  Agente (API)        http://localhost:8080   → task chat -- \"Show me dinosaur toys\""
+        echo "  Consola Bindplane   http://localhost:3001"
+        echo "  Dynatrace           ${DT_ENV_URL:-<DT_ENV_URL>}"
+        echo "  Arize AX            proyecto ${ARIZE_PROJECT_NAME:-agentic-lab}"
+        echo "  Siguiente paso      task gate:1   (después gate:2, evals, gate:3, scenario:<nombre>)"
+
+  prepare:
+    internal: true
+    cmds:
+      - scripts/lab-prepare.sh
+
+  build:
+    desc: Construye las imágenes del agente, del servidor MCP y de herramientas
+    cmds:
+      - "{{.COMPOSE}} --profile tools build"
+
+  # ───────────────────────────── Fase 0: accesos ─────────────────────────────
+
+  aws:apply:
+    desc: "Fase 0: usuario IAM mínimo para los dos perfiles de inferencia y presupuesto (Terraform)"
+    cmds:
+      - scripts/tf.sh aws apply
+      - scripts/aws-credentials.sh
+
+  gate:0:
+    desc: "Puerta 0: una llamada a Bedrock responde con el usuario del lab"
+    cmds:
+      - task: prepare
+      - "{{.TOOLS}} gate 0"
+
+  # ───────────────────────────── Fase 1: pipeline ─────────────────────────────
+
+  bindplane:up:
+    desc: "Fase 1: arranca Bindplane server y lee la secret key para el colector"
+    cmds:
+      - task: prepare
+      - "{{.COMPOSE}} up -d bindplane"
+      - scripts/bindplane-bootstrap.sh
+
+  bindplane:apply:
+    desc: "Fase 1: fuentes, procesadores, destinos y configuración del colector en Bindplane (Terraform)"
+    cmds:
+      - scripts/tf.sh bindplane apply
+
+  gate:1:
+    desc: "Puerta 1: la misma traza aparece en Arize AX (completa) y en Dynatrace (redactada)"
+    cmds:
+      - "{{.COMPOSE}} up -d collector"
+      - "{{.TOOLS}} gate 1"
+
+  # ───────────────────────────── Fase 2: agente ─────────────────────────────
+
+  app:up:
+    desc: "Fase 2: colector, Postgres, ChromaDB, seed, servidor MCP y agente"
+    cmds:
+      - "{{.COMPOSE}} up -d --wait collector postgres chroma mcp-server agent"
+
+  seed:
+    desc: Recarga el catálogo en ChromaDB y el esquema, inventario y pedidos de ejemplo en Postgres
+    cmds:
+      - "{{.COMPOSE}} run --rm seed"
+
+  chat:
+    desc: "Habla con el agente: task chat -- \"Show me dinosaur toys\" (sin argumentos, modo interactivo)"
+    interactive: true
+    cmds:
+      - uv run --package wonder-agent wonder-chat {{.CLI_ARGS}}
+
+  load:
+    desc: Envía las 25 peticiones de referencia (tráfico normal, sin fallos)
+    cmds:
+      - "{{.TOOLS}} scenario load {{.CLI_ARGS}}"
+
+  gate:2:
+    desc: "Puerta 2: las 25 peticiones de referencia producen trazas unidas de extremo a extremo"
+    cmds:
+      - "{{.TOOLS}} scenario gate2"
+
+  # ───────────────────────────── Fase 3: evaluaciones ─────────────────────────────
+
+  evals:
+    desc: "Fase 3: dataset y experimento de regresión en Arize AX, y tareas online"
+    cmds:
+      - "{{.TOOLS}} wonder-evals dataset push"
+      - "{{.TOOLS}} wonder-evals experiment run {{.CLI_ARGS}}"
+      - task: evals:online
+
+  evals:online:
+    desc: Crea en Arize AX los evaluadores y las tareas online de evals/tasks/
+    cmds:
+      - "{{.TOOLS}} wonder-evals online apply"
+
+  evals:local:
+    desc: "Experimento sin Arize (resultados en evals/results/): task evals:local -- --limit 5"
+    cmds:
+      - "{{.TOOLS}} wonder-evals experiment run --local {{.CLI_ARGS}}"
+
+  gate:3:
+    desc: "Puerta 3: un cambio de prompt muestra su diferencia en un experimento"
+    cmds:
+      - "{{.TOOLS}} wonder-evals gate3 {{.CLI_ARGS}}"
+
+  # ───────────────────────────── Fase 4: escenarios y demo ─────────────────────────────
+
+  dynatrace:apply:
+    desc: "Fase 4: dashboard y alertas de latencia y errores en Dynatrace (Terraform)"
+    cmds:
+      - scripts/tf.sh dynatrace apply
+
+  scenario:list:
+    desc: Lista los 9 escenarios de fallo
+    cmds:
+      - "{{.TOOLS}} scenario list"
+
+  scenario:reset:
+    desc: Quita cualquier caos o ajuste en caliente y asegura que Postgres está arrancado
+    cmds:
+      - "{{.COMPOSE}} start postgres"
+      - "{{.TOOLS}} scenario reset"
+
+  # Para Postgres desde fuera del runner: se declara antes que el comodín.
+  scenario:db-down:
+    desc: "Escenario: base de datos caída (para Postgres y lo vuelve a arrancar al terminar)"
+    cmds:
+      - defer: "{{.COMPOSE}} start postgres && echo '↺ Postgres arrancado de nuevo'"
+      - "{{.COMPOSE}} stop postgres"
+      - "{{.TOOLS}} scenario run db-down"
+
+  scenario:*:
+    desc: "Lanza un escenario autorreversible: slow-tool, tool-error, bad-args, catalog-hallucination, prompt-injection, tool-loop, model-swap, bedrock-throttling"
+    vars:
+      NAME: "{{index .MATCH 0}}"
+    cmds:
+      - defer: "{{.TOOLS}} scenario reset"
+      - "{{.TOOLS}} scenario run {{.NAME}} {{.CLI_ARGS}}"
+
+  gate:4:
+    desc: "Puerta 4 (demo): los 9 escenarios se lanzan y se revierten; dashboard y alertas desplegados"
+    cmds:
+      - scripts/tf.sh dynatrace output dashboard_id
+      - for: [slow-tool, tool-error, db-down, bad-args, catalog-hallucination, prompt-injection, tool-loop, model-swap, bedrock-throttling]
+        task: "scenario:{{.ITEM}}"
+      - echo "PUERTA 4 OK. Recorre docs/scenarios/ para ver qué mirar de cada uno en Arize AX y Dynatrace."
+
+  # ───────────────────────────── Secretos (sops + age) ─────────────────────────────
+
+  secrets:init:
+    desc: Genera tu clave age (si no existe) y .sops.yaml para cifrar secrets.enc.env
+    cmds:
+      - mkdir -p "${SOPS_AGE_KEY_DIR:-$HOME/.config/sops/age}"
+      - test -f "${SOPS_AGE_KEY_DIR:-$HOME/.config/sops/age}/keys.txt" || age-keygen -o "${SOPS_AGE_KEY_DIR:-$HOME/.config/sops/age}/keys.txt"
+      - |
+        pub="$(age-keygen -y "${SOPS_AGE_KEY_DIR:-$HOME/.config/sops/age}/keys.txt")"
+        printf 'creation_rules:\n  - path_regex: (^|/)(secrets\\.enc\\.env|\\.env)$\n    age: %s\n' "$pub" > .sops.yaml
+        echo "✓ .sops.yaml creado para la clave pública $pub"
+
+  secrets:encrypt:
+    desc: Cifra .env en secrets.enc.env (este sí se puede subir a Git)
+    preconditions:
+      - sh: test -f .sops.yaml
+        msg: Falta .sops.yaml; ejecuta primero task secrets:init
+    cmds:
+      - sops --encrypt --input-type dotenv --output-type dotenv .env > secrets.enc.env
+      - echo "✓ secrets.enc.env actualizado"
+
+  secrets:decrypt:
+    desc: Descifra secrets.enc.env en .env
+    cmds:
+      - sops --decrypt --input-type dotenv --output-type dotenv secrets.enc.env > .env
+      - chmod 600 .env
+
+  secrets:edit:
+    desc: Edita secrets.enc.env con sops
+    interactive: true
+    cmds:
+      - sops --input-type dotenv --output-type dotenv secrets.enc.env
+
+  # ───────────────────────────── Validación sin credenciales ─────────────────────────────
+
+  check:
+    desc: "Todo lo que se valida sin credenciales: lint, tests, terraform, compose y pipeline"
+    cmds:
+      - task: lint
+      - task: test
+      - task: validate
+      - task: test:smoke
+
+  lint:
+    desc: Ruff (lint y formato)
+    cmds:
+      - uv run ruff check .
+      - uv run ruff format --check .
+
+  test:
+    desc: Tests unitarios (Bedrock simulado, sin red)
+    cmds:
+      - uv run pytest
+
+  validate:
+    desc: terraform fmt/validate de los tres módulos y docker compose config
+    cmds:
+      - terraform fmt -check -recursive infra
+      - for: { var: TF_MODULES }
+        cmd: terraform -chdir={{.ITEM}} init -backend=false -input=false >/dev/null && terraform -chdir={{.ITEM}} validate
+      - docker compose --env-file ci/smoke.env config --quiet
+      - "{{.SMOKE}} config --quiet"
+
+  test:smoke:
+    desc: "Smoke test de extremo a extremo sin credenciales: LLM simulado y colector de referencia con salida a fichero"
+    cmds:
+      - ci/smoke.sh
+
+  logs:
+    desc: "Logs de un servicio: task logs -- agent"
+    cmds:
+      - "{{.COMPOSE}} logs -f --tail 100 {{.CLI_ARGS}}"

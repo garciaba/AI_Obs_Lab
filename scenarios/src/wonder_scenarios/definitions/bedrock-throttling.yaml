@@ -1,0 +1,12 @@
+name: bedrock-throttling
+title: Throttling de Bedrock
+summary: Carga concurrente por encima de la cuota de la cuenta (30 peticiones a la vez).
+concurrency: 30
+repeat: 3
+timeout_s: 600
+requests_from: reference
+request_limit: 20
+expect: {}
+look_at:
+  arize: "Spans LLM con error (ThrottlingException) y la duración extra de los reintentos."
+  dynatrace: "Respuestas 429 de bedrock-runtime (tile 'Bedrock: respuestas HTTP'), latencia y errores del agente."

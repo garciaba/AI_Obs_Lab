@@ -1,0 +1,18 @@
+name: tool-error
+title: Herramienta caída
+summary: El servidor MCP devuelve error en la compra (pasarela de pago caída).
+chaos:
+  error_tools:
+    purchase-product: "Payment gateway unavailable (simulated outage)"
+repeat: 3
+requests:
+  - tag: purchase-fails-1
+    message: "I'd like to buy toy-002. Ship it to Jane Doe, 123 Main St, Springfield, IL 62701, US."
+  - tag: purchase-fails-2
+    message: "Buy 2 of toy-015 for me. Shipping address: Maria Garcia, 789 Elm Blvd, Miami, FL 33101, US."
+expect:
+  tool: purchase-product
+  tool_status: error
+look_at:
+  arize: "Cómo reacciona el agente: eval Tool Response Handling (¿reconoce el fallo o finge la compra?)."
+  dynatrace: "Tasa de errores de wonder-toys-mcp, logs de error con trace_id y la alerta de errores del MCP."

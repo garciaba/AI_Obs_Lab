@@ -21,7 +21,7 @@ import sys
 from pathlib import Path
 
 REDACTED = re.compile(
-    r"^(input\.value|output\.value|llm\.(input|output)_messages\..*|llm\.prompts?\..*|"
+    r"^(input\.value|output\.value|wonder\.tool_results|llm\.(input|output)_messages\..*|llm\.prompts?\..*|"
     r"llm\.tools.*|gen_ai\.(input|output)\.messages|gen_ai\.system_instructions|"
     r"gen_ai\.tool\.call\.(arguments|result)|retrieval\.documents\..*\.content)$"
 )

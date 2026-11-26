@@ -1,0 +1,16 @@
+name: model-swap
+title: Cambio de modelo
+summary: El supervisor pasa de Sonnet 5.5 a Haiku 5.5; se compara con un experimento por modelo.
+phases:
+  - label: supervisor-sonnet
+    overrides: {}
+  - label: supervisor-haiku
+    overrides:
+      supervisor_model: ${SUBAGENT_MODEL_ID}
+experiment: true
+requests_from: reference
+expect:
+  http_status: 200
+look_at:
+  arize: "Experiments → compara los dos experimentos model-swap-* del dataset wonder-toys-regression."
+  dynatrace: "Cambio de latencia y de tokens/coste por petición entre los dos tramos (tile 'Tokens por modelo')."

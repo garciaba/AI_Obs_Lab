@@ -1,0 +1,21 @@
+name: catalog-hallucination
+title: Alucinación de catálogo
+summary: El RAG devuelve vacío (fase 1) y luego productos irrelevantes (fase 2).
+phases:
+  - label: rag-empty
+    chaos:
+      rag_mode: empty
+  - label: rag-irrelevant
+    chaos:
+      rag_mode: irrelevant
+repeat: 2
+requests:
+  - tag: hallucination-dinosaurs
+    message: "What dinosaur toys do you have? Show me three with prices."
+  - tag: hallucination-robot
+    message: "Recommend your best-selling robot kit and tell me its price and rating."
+expect:
+  http_status: 200
+look_at:
+  arize: "Correctness y Catalog Faithfulness bajas; documentos recuperados en el span RETRIEVER (vacío o irrelevantes)."
+  dynatrace: "Nada anómalo."

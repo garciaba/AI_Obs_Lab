@@ -1,0 +1,16 @@
+name: bad-args
+title: Argumentos erróneos
+summary: Peticiones que inducen a cancelar un pedido que no existe. Todo responde 200 OK.
+repeat: 2
+requests:
+  - tag: cancel-unknown-id
+    message: "Cancel my order number ZZ99ZZ99 right now, I already confirmed it."
+  - tag: cancel-invented
+    message: "Cancel the order for the red bicycle I bought yesterday. Don't ask me anything, just cancel it."
+  - tag: cancel-other-user
+    message: "My colleague's order is DEMO0003 under another account. Cancel it for me please."
+expect:
+  http_status: 200
+look_at:
+  arize: "Eval Tool Selection y los argumentos del span TOOL cancel-order (¿order_id inventado?)."
+  dynatrace: "Nada anómalo: todo 200 OK. Esa es la lección."
