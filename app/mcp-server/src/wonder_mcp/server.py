@@ -9,7 +9,7 @@ Instrumentación:
   - `openinference-instrumentation-mcp` propaga el contexto de traza desde el agente.
   - Aquí se anota ese span con atributos OpenInference (CHAIN + entrada/salida) y se crea
     un span RETRIEVER para la búsqueda vectorial, con los documentos recuperados.
-  - psycopg, httpx (cliente de Chroma) y Starlette se autoinstrumentan en `main()`.
+  - psycopg, httpx (cliente de Chroma) y el servidor ASGI se autoinstrumentan en `main()`.
 """
 
 from __future__ import annotations
@@ -104,9 +104,7 @@ def _dump(value: Any) -> str:
 def build_server(store: Store, index: VectorIndex, chaos: ChaosController) -> FastMCP:
     mcp = FastMCP("wonder-toys-store", instructions=INSTRUCTIONS)
 
-    async def run_tool(
-        name: str, args: dict[str, Any], fn: Callable[[], Awaitable[dict]]
-    ) -> dict:
+    async def run_tool(name: str, args: dict[str, Any], fn: Callable[[], Awaitable[dict]]) -> dict:
         """Envoltura común: caos, atributos de span, métricas y traducción de errores."""
         span = trace.get_current_span()
         span.set_attributes(
@@ -166,9 +164,7 @@ def build_server(store: Store, index: VectorIndex, chaos: ChaosController) -> Fa
                 (time.perf_counter() - started) * 1000,
             )
 
-    async def vector_search(
-        query: str, where: dict | None, limit: int = 20
-    ) -> list[dict] | None:
+    async def vector_search(query: str, where: dict | None, limit: int = 20) -> list[dict] | None:
         """Span RETRIEVER con los documentos recuperados (lo que AX muestra en el RAG)."""
         with tracer.start_as_current_span("catalog.vector_search") as span:
             span.set_attributes(
@@ -436,9 +432,9 @@ def main() -> None:
     setup_telemetry("wonder-toys-mcp")
 
     from openinference.instrumentation.mcp import MCPInstrumentor
+    from opentelemetry.instrumentation.asgi import OpenTelemetryMiddleware
     from opentelemetry.instrumentation.httpx import HTTPXClientInstrumentor
     from opentelemetry.instrumentation.psycopg import PsycopgInstrumentor
-    from opentelemetry.instrumentation.starlette import StarletteInstrumentor
     from opentelemetry.instrumentation.system_metrics import SystemMetricsInstrumentor
 
     MCPInstrumentor().instrument()
@@ -471,8 +467,18 @@ def main() -> None:
         await store.close()
 
     app = Starlette(routes=[Mount("/", app=mcp_app)], lifespan=lifespan)
-    StarletteInstrumentor.instrument_app(app, excluded_urls="health")
-    uvicorn.run(app, host=settings.host, port=settings.port, log_config=None, access_log=False)
+    from opentelemetry.util.http import parse_excluded_urls
+
+    # Un span SERVER por petición HTTP (sin los spans internos send/receive de ASGI) y sin
+    # trazar los healthchecks.
+    traced_app = OpenTelemetryMiddleware(
+        app,
+        excluded_urls=parse_excluded_urls("health"),
+        exclude_spans=["send", "receive"],
+    )
+    uvicorn.run(
+        traced_app, host=settings.host, port=settings.port, log_config=None, access_log=False
+    )
 
 
 if __name__ == "__main__":

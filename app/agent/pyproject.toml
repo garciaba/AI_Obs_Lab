@@ -1,0 +1,37 @@
+[project]
+name = "wonder-agent"
+version = "0.1.0"
+description = "Agente Wonder Toys: supervisor + 2 subagentes (LangGraph) y API FastAPI"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "labcommon",
+    "fastapi",
+    "uvicorn[standard]",
+    "httpx",
+    "langchain-core",
+    "langgraph",
+    "langgraph-checkpoint-postgres",
+    "langchain-aws",
+    "langchain-mcp-adapters",
+    "psycopg[binary,pool]",
+    "openinference-instrumentation-langchain",
+    "openinference-instrumentation-mcp",
+    "opentelemetry-instrumentation-fastapi",
+    "opentelemetry-instrumentation-httpx",
+    "opentelemetry-instrumentation-psycopg",
+    "opentelemetry-instrumentation-urllib3",
+    "opentelemetry-instrumentation-system-metrics",
+]
+
+[project.scripts]
+wonder-chat = "wonder_agent.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/wonder_agent"]
+
+[tool.uv.sources]
+labcommon = { workspace = true }

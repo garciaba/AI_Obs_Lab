@@ -10,7 +10,7 @@ dependencies = [
     "psycopg[binary,pool]",
     "uvicorn[standard]",
     "openinference-instrumentation-mcp",
-    "opentelemetry-instrumentation-starlette",
+    "opentelemetry-instrumentation-asgi",
     "opentelemetry-instrumentation-httpx",
     "opentelemetry-instrumentation-psycopg",
     "opentelemetry-instrumentation-system-metrics",

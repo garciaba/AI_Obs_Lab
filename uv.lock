@@ -1689,22 +1689,6 @@ wheels = [
 ]
 
 [[package]]
-name = "opentelemetry-instrumentation-starlette"
-version = "0.66b2"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "opentelemetry-api" },
-    { name = "opentelemetry-instrumentation" },
-    { name = "opentelemetry-instrumentation-asgi" },
-    { name = "opentelemetry-semantic-conventions" },
-    { name = "opentelemetry-util-http" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/c4/14/8bdf4177ec4d079a70e86a29a36a4cbc862a84c61aa47da310005f42dd07/opentelemetry_instrumentation_starlette-0.66b2.tar.gz", hash = "sha256:c5b4eb86d7a472eeab1956798ed87659546cda4a8588298a44992f783410dca6", size = 14317, upload-time = "2026-10-29T17:38:46.079Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/71/8a/b901f555bade6945035714b32c4e34d2e2c5ba70976e1343e5d84d5878e4/opentelemetry_instrumentation_starlette-0.66b2-py3-none-any.whl", hash = "sha256:5b509ae05877dca45a8e8ba08c464401197acd622f7931d4cad02666cc039d4a", size = 11092, upload-time = "2026-10-29T17:37:54.696Z" },
-]
-
-[[package]]
 name = "opentelemetry-instrumentation-system-metrics"
 version = "0.66b2"
 source = { registry = "https://pypi.org/simple" }
@@ -2856,9 +2840,9 @@ dependencies = [
     { name = "fastmcp" },
     { name = "labcommon" },
     { name = "openinference-instrumentation-mcp" },
+    { name = "opentelemetry-instrumentation-asgi" },
     { name = "opentelemetry-instrumentation-httpx" },
     { name = "opentelemetry-instrumentation-psycopg" },
-    { name = "opentelemetry-instrumentation-starlette" },
     { name = "opentelemetry-instrumentation-system-metrics" },
     { name = "psycopg", extra = ["binary", "pool"] },
     { name = "uvicorn", extra = ["standard"] },
@@ -2870,9 +2854,9 @@ requires-dist = [
     { name = "fastmcp" },
     { name = "labcommon", editable = "app/common" },
     { name = "openinference-instrumentation-mcp" },
+    { name = "opentelemetry-instrumentation-asgi" },
     { name = "opentelemetry-instrumentation-httpx" },
     { name = "opentelemetry-instrumentation-psycopg" },
-    { name = "opentelemetry-instrumentation-starlette" },
     { name = "opentelemetry-instrumentation-system-metrics" },
     { name = "psycopg", extras = ["binary", "pool"] },
     { name = "uvicorn", extras = ["standard"] },

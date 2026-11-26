@@ -339,9 +339,7 @@ class PostgresStore:
 
     async def get_order(self, order_id: str) -> dict | None:
         async with self._pool.connection() as conn:
-            cur = await conn.execute(
-                self._ORDER_SQL.format(where="o.id = %s"), (order_id.upper(),)
-            )
+            cur = await conn.execute(self._ORDER_SQL.format(where="o.id = %s"), (order_id.upper(),))
             row = await cur.fetchone()
         return self._order_row(row) if row else None
 

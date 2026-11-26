@@ -23,9 +23,7 @@ class FakeIndex:
             return None
         q = query.lower()
         hits = [p for p in self.products if any(w in p["name"].lower() for w in q.split())]
-        return [
-            {"id": p["id"], "document": p["name"], "score": 0.9} for p in hits[:n_results]
-        ]
+        return [{"id": p["id"], "document": p["name"], "score": 0.9} for p in hits[:n_results]]
 
 
 @pytest.fixture

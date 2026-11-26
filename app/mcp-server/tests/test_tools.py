@@ -23,9 +23,13 @@ ADDRESS = {
 }
 
 _exporter = InMemorySpanExporter()
-_provider = TracerProvider()
+# El proveedor global solo puede fijarse una vez por proceso: se reutiliza si otro módulo
+# de tests ya lo creó.
+_provider = trace.get_tracer_provider()
+if not isinstance(_provider, TracerProvider):
+    _provider = TracerProvider()
+    trace.set_tracer_provider(_provider)
 _provider.add_span_processor(SimpleSpanProcessor(_exporter))
-trace.set_tracer_provider(_provider)
 
 
 @pytest.fixture
@@ -100,9 +104,7 @@ async def test_purchase_check_and_cancel_flow_restores_inventory(env):
     )
     assert other == {"found": False, "orders": []}
 
-    cancelled = await call(
-        server, "cancel-order", {"user_id": "u1", "order_id": bought["orderId"]}
-    )
+    cancelled = await call(server, "cancel-order", {"user_id": "u1", "order_id": bought["orderId"]})
     assert cancelled == {"success": True}
     assert store.products["toy-001"]["inventory"] == before
 

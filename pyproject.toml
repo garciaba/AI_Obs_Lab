@@ -25,9 +25,11 @@ extend-exclude = ["infra"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "ASYNC"]
+ignore = ["E501"]  # el formateador ya parte el código; quedan prompts y cadenas largas
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
 testpaths = ["app/agent/tests", "app/mcp-server/tests", "evals/tests", "scenarios/tests"]
 addopts = "-q --import-mode=importlib"
+filterwarnings = ["ignore:create_react_agent has been moved:DeprecationWarning"]
