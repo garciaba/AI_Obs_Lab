@@ -1,0 +1,70 @@
+# Experimento de regresión en Arize AX: se lanza en cada cambio de prompt o de modelo
+# (y a mano). Levanta la aplicación en el runner con Bedrock real, ejecuta el dataset
+# wonder-toys-regression contra el agente y sube el experimento con
+# client.experiments.run().
+#
+# Secretos del repositorio necesarios:
+#   LAB_AWS_ACCESS_KEY_ID, LAB_AWS_SECRET_ACCESS_KEY   usuario IAM mínimo del lab
+#                                                       (terraform -chdir=infra/aws output)
+#   ARIZE_API_KEY, ARIZE_SPACE_ID
+# La telemetría del runner se queda en el colector de referencia (ficheros): las trazas de
+# CI no se mezclan con las del lab en Arize AX ni en Dynatrace.
+name: regression-experiment
+
+on:
+  workflow_dispatch:
+    inputs:
+      prompt_version:
+        description: Versión de prompt del supervisor (v1, v2-plain…)
+        default: v1
+      supervisor_model:
+        description: Perfil de inferencia del supervisor
+        default: eu.anthropic.claude-sonnet-5-5
+  pull_request:
+    paths:
+      - app/agent/src/wonder_agent/prompts.py
+      - app/agent/src/wonder_agent/graph.py
+      - app/agent/src/wonder_agent/llm.py
+      - evals/src/wonder_evals/**
+
+permissions:
+  contents: read
+
+jobs:
+  experiment:
+    runs-on: ubuntu-24.04
+    # Los PR desde forks no reciben secretos: no se ejecuta en ellos.
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository
+    env:
+      DC: docker compose --env-file ci/regression.env -f compose.yaml -f compose.smoke.yaml
+      ARIZE_API_KEY: ${{ secrets.ARIZE_API_KEY }}
+      ARIZE_SPACE_ID: ${{ secrets.ARIZE_SPACE_ID }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Credenciales del usuario del lab
+        run: |
+          mkdir -p .lab/aws .lab/smoke/out evals/results
+          chmod 777 .lab/smoke/out evals/results
+          cat > .lab/aws/credentials <<CREDS
+          [agentic-lab]
+          aws_access_key_id = ${{ secrets.LAB_AWS_ACCESS_KEY_ID }}
+          aws_secret_access_key = ${{ secrets.LAB_AWS_SECRET_ACCESS_KEY }}
+          region = eu-west-1
+          CREDS
+          sed -i 's/^ *//' .lab/aws/credentials
+          python3 infra/bindplane/render_reference.py > .lab/smoke/collector.yaml
+      - name: Arranca la aplicación (Bedrock real)
+        run: |
+          $DC --profile tools build -q
+          $DC up -d --no-build --wait collector postgres chroma mcp-server agent
+      - name: Experimento de regresión
+        run: |
+          name="ci-${{ github.event.pull_request.number && format('pr{0}', github.event.pull_request.number) || 'manual' }}-${GITHUB_SHA::7}"
+          $DC --profile tools run --rm --no-deps -T tools wonder-evals dataset push
+          $DC --profile tools run --rm --no-deps -T tools wonder-evals experiment run \
+            --name "$name" \
+            --override prompt_version=${{ inputs.prompt_version || 'v1' }} \
+            --override supervisor_model=${{ inputs.supervisor_model || 'eu.anthropic.claude-sonnet-5-5' }} \
+            | tee -a "$GITHUB_STEP_SUMMARY"
+      - if: always()
+        run: $DC --profile tools down --volumes

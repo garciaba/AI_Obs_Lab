@@ -1,0 +1,62 @@
+# Validación sin credenciales en cada push y PR: lint, tests con Bedrock simulado,
+# terraform validate, build de las imágenes y smoke test de extremo a extremo.
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint-and-test:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.11.32"
+          enable-cache: true
+      - run: uv sync --all-packages --frozen
+      - run: uv run ruff check .
+      - run: uv run ruff format --check .
+      - run: uv run pytest
+
+  terraform:
+    runs-on: ubuntu-24.04
+    strategy:
+      matrix:
+        module: [aws, bindplane, dynatrace]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.17.2"
+      - run: terraform fmt -check -recursive infra
+      - run: terraform -chdir=infra/${{ matrix.module }} init -backend=false -input=false
+      - run: terraform -chdir=infra/${{ matrix.module }} validate
+
+  smoke:
+    runs-on: ubuntu-24.04
+    needs: lint-and-test
+    steps:
+      - uses: actions/checkout@v4
+      - name: docker compose config
+        run: |
+          docker compose --env-file ci/smoke.env config --quiet
+          docker compose --env-file ci/smoke.env -f compose.yaml -f compose.smoke.yaml config --quiet
+      - name: Build de las imágenes y smoke test (LLM simulado, colector de referencia)
+        run: ci/smoke.sh
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: smoke-collector-output
+          path: .lab/smoke/
+          include-hidden-files: true
+          retention-days: 7
