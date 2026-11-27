@@ -1,4 +1,4 @@
-# Lab de IA agéntica: todo corre aquí salvo Bedrock, Arize AX y Dynatrace (SaaS).
+# Lab de IA agéntica: todo corre aquí salvo Vertex AI, Arize AX y Dynatrace (SaaS).
 #
 # No se arranca con `docker compose up` a secas: `task up` impone el orden que exige el
 # diseño (Bindplane server → terraform apply sobre Bindplane → colector y aplicación).
@@ -211,18 +211,18 @@ services:
     environment:
       <<: *app-env
       OTEL_SERVICE_NAME: wonder-toys-agent
-      LLM_PROVIDER: ${LLM_PROVIDER:-bedrock}
-      AWS_REGION: ${AWS_REGION:-eu-west-1}
-      # Credenciales del usuario IAM mínimo del lab (las escribe `task up` desde Terraform).
-      AWS_SHARED_CREDENTIALS_FILE: /aws/credentials
-      AWS_PROFILE: ${LAB_AWS_PROFILE:-agentic-lab}
-      SUPERVISOR_MODEL_ID: ${SUPERVISOR_MODEL_ID:-eu.anthropic.claude-sonnet-5-5}
-      SUBAGENT_MODEL_ID: ${SUBAGENT_MODEL_ID:-eu.anthropic.claude-haiku-5-5}
+      LLM_PROVIDER: ${LLM_PROVIDER:-vertex}
+      GCP_PROJECT_ID: ${GCP_PROJECT_ID:-}
+      GCP_REGION: ${GCP_REGION:-europe-west1}
+      # Clave de la cuenta de servicio mínima del lab (la escribe `task up` desde Terraform).
+      GOOGLE_APPLICATION_CREDENTIALS: /gcp/credentials.json
+      SUPERVISOR_MODEL_ID: ${SUPERVISOR_MODEL_ID:-claude-sonnet-5-5}
+      SUBAGENT_MODEL_ID: ${SUBAGENT_MODEL_ID:-claude-haiku-5-5}
       PROMPT_VERSION: ${PROMPT_VERSION:-v1}
       MCP_URL: http://mcp-server:8000/mcp
       DATABASE_URL: postgresql://wonder:wonder@postgres:5432/wonder
     volumes:
-      - ${LAB_AWS_DIR:-./.lab/aws}:/aws:ro
+      - ${LAB_GCP_DIR:-./.lab/gcp}:/gcp:ro
     depends_on:
       mcp-server:
         condition: service_healthy
@@ -250,21 +250,23 @@ services:
       OTEL_SERVICE_NAME: wonder-toys-lab-tools
       AGENT_URL: http://agent:8080
       MCP_ADMIN_URL: http://mcp-server:8000
-      AWS_REGION: ${AWS_REGION:-eu-west-1}
-      AWS_SHARED_CREDENTIALS_FILE: /aws/credentials
-      AWS_PROFILE: ${LAB_AWS_PROFILE:-agentic-lab}
-      SUPERVISOR_MODEL_ID: ${SUPERVISOR_MODEL_ID:-eu.anthropic.claude-sonnet-5-5}
-      SUBAGENT_MODEL_ID: ${SUBAGENT_MODEL_ID:-eu.anthropic.claude-haiku-5-5}
-      JUDGE_MODEL_ID: ${JUDGE_MODEL_ID:-eu.anthropic.claude-haiku-5-5}
+      GCP_PROJECT_ID: ${GCP_PROJECT_ID:-}
+      GCP_REGION: ${GCP_REGION:-europe-west1}
+      GOOGLE_APPLICATION_CREDENTIALS: /gcp/credentials.json
+      SUPERVISOR_MODEL_ID: ${SUPERVISOR_MODEL_ID:-claude-sonnet-5-5}
+      SUBAGENT_MODEL_ID: ${SUBAGENT_MODEL_ID:-claude-haiku-5-5}
+      JUDGE_MODEL_ID: ${JUDGE_MODEL_ID:-claude-haiku-5-5}
       ARIZE_SPACE_ID: ${ARIZE_SPACE_ID:-}
       ARIZE_API_KEY: ${ARIZE_API_KEY:-}
       ARIZE_PROJECT_NAME: ${ARIZE_PROJECT_NAME:-agentic-lab}
       ARIZE_REGION: ${ARIZE_REGION:-}
+      ARIZE_AI_INTEGRATION_ID: ${ARIZE_AI_INTEGRATION_ID:-}
+      ARIZE_GCP_PROJECT_ACCESS_LABEL: ${ARIZE_GCP_PROJECT_ACCESS_LABEL:-}
       DT_ENV_URL: ${DT_ENV_URL:-}
       DT_QUERY_TOKEN: ${DT_QUERY_TOKEN:-}
       PROMPT_VERSION: ${PROMPT_VERSION:-v1}
     volumes:
-      - ${LAB_AWS_DIR:-./.lab/aws}:/aws:ro
+      - ${LAB_GCP_DIR:-./.lab/gcp}:/gcp:ro
       - ./evals/results:/home/app/results
 
 volumes:

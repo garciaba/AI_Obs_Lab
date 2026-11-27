@@ -1,4 +1,4 @@
-"""Tests de las evals sin Arize ni Bedrock (juez simulado)."""
+"""Tests de las evals sin Arize ni Vertex AI (juez simulado)."""
 
 import json
 

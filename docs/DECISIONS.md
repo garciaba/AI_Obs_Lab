@@ -60,21 +60,28 @@ la alternativa más simple que funciona.
 | El span del servidor MCP (`tools/call …`, emitido por FastMCP) se marca como **CHAIN**, no TOOL | El span TOOL ya lo crea LangChain en el agente; dos TOOL por llamada duplicarían los recuentos | `run_tool` en `server.py` |
 | Un interceptor ejecuta cada llamada MCP con el span TOOL como contexto activo | El instrumentador de LangChain no deja sus spans como contexto de OpenTelemetry; sin esto el lado servidor colgaba de la raíz | `_trace_under_tool_span` en `service.py` |
 | La app pone entrada, salida y `session.id` en el span HTTP raíz; el colector le pone el tipo CHAIN | El diseño pide que la raíz la marque el colector; sin entrada y salida, las evals sobre la raíz no tendrían qué evaluar | — |
-| No se instrumenta botocore; las llamadas a Bedrock se ven como spans HTTP de `urllib3` | La instrumentación de botocore emite spans `gen_ai.*` propios y Arize mostraría cada llamada al modelo dos veces | Añade `opentelemetry-instrumentation-botocore` si lo prefieres en Dynatrace |
-| Los spans HTTP de Bedrock cuelgan del span raíz, no del span LLM | Misma limitación de contexto; para el LLM no hay un punto de enganche como el interceptor | — |
+| Se conservan los spans propios del SDK de Anthropic (`anthropic.messages.create`, uno por intento HTTP a Vertex AI); el colector los descarta en la rama de Arize y les quita `gen_ai.usage.*` en la de Dynatrace | Son la única vista de la dependencia externa (host de Vertex, 429, reintentos): el SDK no usa `httpx` estándar y la autoinstrumentación HTTP no lo ve. Sin el filtro, Arize mostraría cada llamada al modelo dos veces y Dynatrace sumaría los tokens dos veces | `ANTHROPIC_OPEN_TELEMETRY=false` en el agente los desactiva (se pierde el tile de Vertex AI) |
+| Los spans HTTP de Vertex AI cuelgan del span raíz, no del span LLM | Misma limitación de contexto; para el LLM no hay un punto de enganche como el interceptor | — |
 | API sin streaming: `POST /chat` devuelve JSON con respuesta, `trace_id` y llamadas a herramientas | Más simple de probar y de usar desde escenarios y evals | `api.py` |
 | Con Postgres caído, el agente sigue en modo degradado (memoria de sesión en RAM, `degraded: true`) | El diseño espera ver en AX «fallo de herramienta y respuesta del agente», no un 500 por el checkpointer | `AgentService.graphs` |
-| `LLM_PROVIDER=fake`: modelo determinista sin red | Es el «Bedrock simulado» de los tests y del smoke test | — |
+| `LLM_PROVIDER=fake`: modelo determinista sin red | Es el «LLM simulado» de los tests y del smoke test | — |
 | Endpoints `/admin/overrides` (agente) y `/chaos` (servidor MCP) sin autenticación | El agente solo escucha en localhost y el servidor MCP solo en la red de compose; todo ajuste caduca solo | Añade un token si lo expones |
 
-## AWS (fase 0)
+## Google Cloud (fase 0)
+
+El diseño original usaba Claude en Amazon Bedrock; a petición posterior se cambió a
+**Claude en Vertex AI**. Se retiró todo lo de AWS (`infra/aws`, `langchain-aws`, perfiles
+de inferencia).
 
 | Decisión | Por qué | Cómo cambiarlo |
 | --- | --- | --- |
-| `AWS_PROFILE` es tu perfil de administración y solo lo usa Terraform; el lab corre con un **usuario IAM** propio cuya clave se escribe en `.lab/aws/credentials` | La puerta 0 pide que Bedrock responda «con el usuario del lab», y así los contenedores no ven tus credenciales | Para usar tu perfil: `LAB_AWS_DIR=$HOME/.aws` y `LAB_AWS_PROFILE=<perfil>` en `.env` |
-| La política sale del data source `aws_bedrock_inference_profile` ⚠ | El propio perfil dice a qué modelos y regiones enruta; no hay regiones escritas a mano | `infra/aws/main.tf` |
-| La clave de acceso queda en el estado local de Terraform | Inevitable con `aws_iam_access_key`; el estado está fuera de Git | Rol asumible + SSO |
-| Presupuesto filtrado por `Service = "Amazon Bedrock"` ⚠ | Según la cuenta, los cargos de Claude figuran con otro nombre de servicio | Variable `budget_services` (lista vacía = toda la cuenta) |
+| Cliente `ChatAnthropicVertex` (`langchain-google-vertexai` + `anthropic[vertex]`) | Es el cliente de LangChain para los modelos de Anthropic en Vertex AI Model Garden; mantiene Sonnet 5.5 en el supervisor y Haiku 5.5 en subagentes y juez | `app/agent/src/wonder_agent/llm.py`, `evals/src/wonder_evals/judge.py` |
+| Identificadores por defecto `claude-sonnet-5-5` y `claude-haiku-5-5`, región `europe-west1` ⚠ | No se pudo consultar Model Garden: el nombre exacto (puede llevar sufijo `@<versión>`) y las regiones disponibles hay que confirmarlos | `SUPERVISOR_MODEL_ID`, `SUBAGENT_MODEL_ID`, `JUDGE_MODEL_ID`, `GCP_REGION` |
+| Terraform usa tus Application Default Credentials; el lab corre con una **cuenta de servicio** propia cuya clave se escribe en `.lab/gcp/credentials.json` | La puerta 0 pide que el LLM responda con la identidad del lab, y así los contenedores no ven tus credenciales | Para usar otras credenciales: `LAB_GCP_DIR=<carpeta con credentials.json>` en `.env` |
+| Rol propio con un único permiso, `aiplatform.endpoints.predict` ⚠ | El rol predefinido `roles/aiplatform.user` da acceso a mucho más. IAM de GCP no permite limitar a dos modelos concretos, así que el mínimo es «solo predicción» en el proyecto | `infra/gcp/main.tf` (si la puerta 0 da 403, cambia a `roles/aiplatform.user`) |
+| La clave de la cuenta de servicio queda en el estado local de Terraform | Inevitable con `google_service_account_key`; el estado está fuera de Git. Si tu organización prohíbe crear claves, usa tus propias credenciales con `LAB_GCP_DIR=$HOME/.config/gcloud` y `GOOGLE_APPLICATION_CREDENTIALS` apuntando a `application_default_credentials.json` | Workload Identity en un despliegue real |
+| Presupuesto opcional, solo si defines `GCP_BILLING_ACCOUNT`, y filtrado por proyecto ⚠ | Crear presupuestos exige permisos sobre la cuenta de facturación, que no todo el mundo tiene | `LAB_BUDGET_AMOUNT`, `LAB_BUDGET_CURRENCY` |
+| El escenario `bedrock-throttling` del diseño pasa a llamarse `vertex-throttling` | Mismo fallo (429 por cuota), otro proveedor | — |
 
 ## Evaluaciones (fase 3)
 
@@ -82,9 +89,9 @@ la alternativa más simple que funciona.
 | --- | --- | --- |
 | Los 6 evaluadores de Wonder Toys, más `prompt_injection_safety` y `catalog_faithfulness`, más `trajectory_convergence` y `session_resolution` | Los dos últimos cubren los niveles trayectoria y sesión de la tabla del diseño | `evals/src/wonder_evals/evaluators.py` |
 | Cambios en las plantillas originales: nombres de herramientas del lab; `tool_selection` recibe las llamadas con argumentos; `tool_response_handling` recibe los resultados y trata los errores | Sin argumentos ni resultados, el juez no puede detectar un `order_id` inventado ni una compra fingida | — |
-| En los experimentos el juez corre **en local** (Haiku 5.5 en Bedrock con el usuario del lab) | No depende de la integración de IA de AX y cuesta lo mismo | `judge.py`, `JUDGE_MODEL_ID` |
+| En los experimentos el juez corre **en local** (Haiku 5.5 en Vertex AI con la cuenta de servicio del lab) | No depende de la integración de IA de AX y cuesta lo mismo | `judge.py`, `JUDGE_MODEL_ID` |
 | Las tareas online se crean con el **SDK de Python** (`client.tasks`, `client.evaluators`), no con el CLI `ax` | El SDK envuelve la misma API de tareas; el CLI 0.40 no tiene `query_filters`, que hacen falta para las tareas de traza y sesión | `online.py` |
-| **Único paso manual**: la integración de IA de Bedrock en AX para el juez online | Arize necesita asumir un rol IAM de tu cuenta; su relación de confianza solo la muestra la consola de AX | Runbook, sección 4 |
+| **Único paso manual**: la integración de IA de Vertex AI en AX para el juez online ⚠ | Arize necesita acceso a tu proyecto de GCP; a quién concederlo y la etiqueta de acceso solo los muestra la consola de AX | Runbook, sección 4 |
 | Las evals online se aplican al span raíz `POST /chat`, con `wonder.tools_used`, `wonder.tool_results` y `wonder.tool_call_count` como contexto ⚠ | Wonder Toys las configura a nivel de traza sobre entrada y salida; la raíz es el span que las tiene | `evals/tasks/online.yaml` |
 | Sintaxis de `query_filter` y forma de las tareas de traza y sesión ⚠ | Construidas con los tipos del SDK 8.66 (validan en local) pero sin probar contra un tenant; la variable `{conversation}` de sesión es la más incierta | `evals/tasks/online.yaml` |
 | Puerta 3 con una variante de prompt `v2-plain` (sin reglas de formato) que se activa en caliente | Demuestra el cambio sin reiniciar; debe caer `format_compliance` | `prompts.py` |
@@ -97,7 +104,7 @@ la alternativa más simple que funciona.
 | Los escenarios corren en el contenedor `tools`, dentro de la red de compose | El diseño solo expone en localhost el agente y Bindplane; el control de caos del servidor MCP no se publica | — |
 | Triple reversión: `finally` del runner, TTL en servidor MCP y agente, y `defer` del Taskfile | «Autorreversible» aunque el runner muera | `ttl_seconds` en cada YAML |
 | `db-down` lo ejecuta el Taskfile (`docker compose stop/start postgres`) | El contenedor de herramientas no controla Docker | — |
-| `bedrock-throttling` depende de tu cuota | No se puede forzar un 429 real sin superar la cuota | `concurrency` en su YAML |
+| `vertex-throttling` depende de tu cuota | No se puede forzar un 429 real sin superar la cuota | `concurrency` en su YAML |
 | `DT_CONFIG_TOKEN` es un **platform token** ⚠ | Dashboards (documentos), detectores de Davis y OpenPipeline son APIs de plataforma | `infra/dynatrace/versions.tf` |
 | Terraform de Dynatrace **no crea tokens** | El token de ingesta lo aportas tú (`DT_INGEST_TOKEN`); `dynatrace_api_token` exigiría además un access token clásico | Añade el recurso si usas access tokens |
 | Alertas con detectores de anomalías de Davis sobre consultas DQL de spans ⚠ | Funcionan con servicios ingeridos solo por OTLP; no dependen de que existan las métricas `dt.service.*` | `alerts.tf`; umbrales en `variables.tf` |
@@ -108,29 +115,32 @@ la alternativa más simple que funciona.
 
 **Validado en esta construcción**
 
-- 34 tests unitarios (agente con Bedrock simulado contra el servidor MCP real en memoria,
+- 34 tests unitarios (agente con LLM simulado contra el servidor MCP real en memoria,
   evaluadores, tareas online en `--dry-run`, runner de escenarios) y lint con ruff.
 - Build de las tres imágenes y `docker compose config` de las tres combinaciones.
 - `terraform fmt` y `terraform validate` de los tres módulos, con los proveedores
-  Bindplane 1.11.0, Dynatrace 1.109.0 y AWS 6.74.0.
+  Bindplane 1.11.0, Dynatrace 1.109.0 y Google 8.12.0.
 - La lógica del pipeline con un colector real (`otelcol-contrib` 0.165.0): `task test:smoke`
   levanta agente, servidor MCP, ChromaDB y Postgres, lanza las 25 peticiones y un
-  escenario, y comprueba 23 puntos: Dynatrace recibe todo y sin contenido de prompts; Arize
+  escenario, además de la prueba de concepto de la puerta 1, y comprueba: Dynatrace recibe todo y sin contenido de prompts; Arize
   recibe solo spans de IA, completos, con la raíz como CHAIN; traza unida entre agente y
   servidor MCP; logs de app y de contenedor con `trace_id`; métricas en delta.
+- El cliente de Vertex AI contra un servidor simulado: ruta `…/publishers/anthropic/models/<modelo>:rawPredict`,
+  reintento tras un 429 y atributos de los spans (incluidos los del SDK de Anthropic, que el
+  colector trata como se describe arriba).
 - Nombres y parámetros de los tipos de Bindplane, contra las definiciones de la imagen
   `bindplane-ee:1.105.0`.
 
 **No validado (sin credenciales ni licencia)**
 
-- Ningún `terraform apply`: nada se creó en AWS, Dynatrace, Arize ni Bindplane.
+- Ningún `terraform apply`: nada se creó en Google Cloud, Dynatrace, Arize ni Bindplane.
 - Que Bindplane genere y despliegue el pipeline tal como está descrito. El servidor
   arrancó aquí pero sin licencia responde 452. Es el mayor riesgo del diseño: `task gate:1`.
 - La imagen de DBDOT y las de GHCR no se pudieron descargar aquí (registro bloqueado en
   este entorno); las etiquetas se comprobaron por la API del registro.
 - El arranque de Bindplane (`scripts/bindplane-bootstrap.sh`).
-- Las llamadas reales a Bedrock, los identificadores de perfil de inferencia y la política
-  IAM.
+- Las llamadas reales a Vertex AI, los identificadores de modelo, su disponibilidad en
+  `europe-west1` y que el permiso `aiplatform.endpoints.predict` baste.
 - La creación de evaluadores y tareas en AX y la sintaxis de sus filtros.
 - El DQL del dashboard y de las alertas, y los permisos exactos de `DT_CONFIG_TOKEN`.
 - La puerta 3 con modelos reales (con el modelo simulado no hay diferencia entre prompts,

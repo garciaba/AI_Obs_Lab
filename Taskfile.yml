@@ -13,7 +13,7 @@ vars:
   COMPOSE: docker compose --env-file .env --env-file .lab/bindplane.env
   TOOLS: "{{.COMPOSE}} --profile tools run --rm -T tools"
   SMOKE: docker compose --env-file ci/smoke.env -f compose.yaml -f compose.smoke.yaml
-  TF_MODULES: infra/aws infra/bindplane infra/dynatrace
+  TF_MODULES: infra/gcp infra/bindplane infra/dynatrace
 
 tasks:
   default:
@@ -24,10 +24,10 @@ tasks:
   # ───────────────────────────── Ciclo de vida ─────────────────────────────
 
   up:
-    desc: "Levanta el lab completo: AWS → imágenes → Bindplane → pipeline → colector y app → Dynatrace"
+    desc: "Levanta el lab completo: GCP → imágenes → Bindplane → pipeline → colector y app → Dynatrace"
     cmds:
       - task: prepare
-      - task: aws:apply
+      - task: gcp:apply
       - task: build
       - task: bindplane:up
       - task: bindplane:apply
@@ -41,8 +41,8 @@ tasks:
       - "{{.COMPOSE}} --profile tools down --remove-orphans"
 
   destroy:
-    desc: "Deshace todo en orden inverso: AX (tareas, evaluadores, dataset, proyecto), Dynatrace, pipeline, contenedores y volúmenes, AWS, estado local"
-    prompt: Esto borra los recursos del lab en Arize AX, Dynatrace y AWS, y todos los datos locales. ¿Continuar?
+    desc: "Deshace todo en orden inverso: AX (tareas, evaluadores, dataset, proyecto), Dynatrace, pipeline, contenedores y volúmenes, GCP, estado local"
+    prompt: Esto borra los recursos del lab en Arize AX, Dynatrace y Google Cloud, y todos los datos locales. ¿Continuar?
     cmds:
       - task: prepare
       - cmd: "{{.TOOLS}} wonder-evals online destroy"
@@ -53,11 +53,11 @@ tasks:
       - cmd: "{{.COMPOSE}} up -d bindplane && scripts/bindplane-bootstrap.sh && scripts/tf.sh bindplane destroy"
         ignore_error: true
       - "{{.COMPOSE}} --profile tools down --volumes --remove-orphans --rmi local"
-      - cmd: scripts/tf.sh aws destroy
+      - cmd: scripts/tf.sh gcp destroy
         ignore_error: true
       - rm -rf .lab evals/results
       - for d in {{.TF_MODULES}}; do rm -rf "$d/.terraform" "$d"/terraform.tfstate*; done
-      - echo 'Lab destruido. No quedan recursos en AX, Dynatrace, Bindplane ni AWS, ni datos locales. Tu .env sigue en tu disco.'
+      - echo 'Lab destruido. No quedan recursos en AX, Dynatrace, Bindplane ni Google Cloud, ni datos locales. Tu .env sigue en tu disco.'
 
   status:
     desc: Estado de los contenedores y direcciones útiles
@@ -84,14 +84,14 @@ tasks:
 
   # ───────────────────────────── Fase 0: accesos ─────────────────────────────
 
-  aws:apply:
-    desc: "Fase 0: usuario IAM mínimo para los dos perfiles de inferencia y presupuesto (Terraform)"
+  gcp:apply:
+    desc: "Fase 0: cuenta de servicio mínima para invocar Claude en Vertex AI y presupuesto (Terraform)"
     cmds:
-      - scripts/tf.sh aws apply
-      - scripts/aws-credentials.sh
+      - scripts/tf.sh gcp apply
+      - scripts/gcp-credentials.sh
 
   gate:0:
-    desc: "Puerta 0: una llamada a Bedrock responde con el usuario del lab"
+    desc: "Puerta 0: una llamada a Vertex AI responde con la cuenta de servicio del lab"
     cmds:
       - task: prepare
       - "{{.TOOLS}} gate 0"
@@ -195,7 +195,7 @@ tasks:
       - "{{.TOOLS}} scenario run db-down"
 
   scenario:*:
-    desc: "Lanza un escenario autorreversible: slow-tool, tool-error, bad-args, catalog-hallucination, prompt-injection, tool-loop, model-swap, bedrock-throttling"
+    desc: "Lanza un escenario autorreversible: slow-tool, tool-error, bad-args, catalog-hallucination, prompt-injection, tool-loop, model-swap, vertex-throttling"
     vars:
       NAME: "{{index .MATCH 0}}"
     cmds:
@@ -206,7 +206,7 @@ tasks:
     desc: "Puerta 4 (demo): los 9 escenarios se lanzan y se revierten; dashboard y alertas desplegados"
     cmds:
       - scripts/tf.sh dynatrace output dashboard_id
-      - for: [slow-tool, tool-error, db-down, bad-args, catalog-hallucination, prompt-injection, tool-loop, model-swap, bedrock-throttling]
+      - for: [slow-tool, tool-error, db-down, bad-args, catalog-hallucination, prompt-injection, tool-loop, model-swap, vertex-throttling]
         task: "scenario:{{.ITEM}}"
       - echo "PUERTA 4 OK. Recorre docs/scenarios/ para ver qué mirar de cada uno en Arize AX y Dynatrace."
 
@@ -260,7 +260,7 @@ tasks:
       - uv run ruff format --check .
 
   test:
-    desc: Tests unitarios (Bedrock simulado, sin red)
+    desc: Tests unitarios (LLM simulado, sin red)
     cmds:
       - uv run pytest
 

@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # Ejecuta Terraform en un módulo de infra/ pasando los valores de .env como variables.
-#   scripts/tf.sh <aws|bindplane|dynatrace> <apply|destroy|plan|output ...>
+#   scripts/tf.sh <gcp|bindplane|dynatrace> <apply|destroy|plan|output ...>
 # Los secretos viajan como TF_VAR_* (nunca en ficheros .tfvars ni en la línea de comandos).
 set -euo pipefail
-module="${1:?módulo: aws | bindplane | dynatrace}"; shift
+module="${1:?módulo: gcp | bindplane | dynatrace}"; shift
 
 set -a
 [ -f .env ] && . ./.env
@@ -12,13 +12,13 @@ set +a
 
 export TF_IN_AUTOMATION=1
 case "$module" in
-  aws)
-    export TF_VAR_aws_region="${AWS_REGION:-eu-west-1}"
-    export TF_VAR_supervisor_inference_profile="${SUPERVISOR_MODEL_ID:-eu.anthropic.claude-sonnet-5-5}"
-    export TF_VAR_subagent_inference_profile="${SUBAGENT_MODEL_ID:-eu.anthropic.claude-haiku-5-5}"
-    [ -n "${LAB_BUDGET_USD:-}" ] && export TF_VAR_budget_limit_usd="$LAB_BUDGET_USD"
-    [ -n "${LAB_BUDGET_EMAIL:-}" ] && export TF_VAR_budget_alert_emails="[\"$LAB_BUDGET_EMAIL\"]"
-    # AWS_PROFILE (tu perfil de administración) lo usa el proveedor directamente.
+  gcp)
+    export TF_VAR_project_id="${GCP_PROJECT_ID:?}"
+    export TF_VAR_region="${GCP_REGION:-europe-west1}"
+    [ -n "${GCP_BILLING_ACCOUNT:-}" ] && export TF_VAR_billing_account="$GCP_BILLING_ACCOUNT"
+    [ -n "${LAB_BUDGET_AMOUNT:-}" ] && export TF_VAR_budget_limit_usd="$LAB_BUDGET_AMOUNT"
+    [ -n "${LAB_BUDGET_CURRENCY:-}" ] && export TF_VAR_budget_currency="$LAB_BUDGET_CURRENCY"
+    # El proveedor usa tus Application Default Credentials (gcloud auth application-default login).
     ;;
   bindplane)
     export TF_VAR_bindplane_username="${BINDPLANE_ADMIN_USER:?}"

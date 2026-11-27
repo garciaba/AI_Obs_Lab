@@ -71,7 +71,7 @@ def _run(name: str, args, overrides: dict) -> dict:
                 summary[evaluator] = {"mean": mean, "n": len(values), "labels": {}}
         report = {
             "name": name,
-            "judge": "Bedrock (JUDGE_MODEL_ID)",
+            "judge": "Vertex AI (JUDGE_MODEL_ID)",
             "rows": [None] * len(frame),
             "summary": summary,
         }

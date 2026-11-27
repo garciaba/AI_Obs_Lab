@@ -5,9 +5,9 @@ Lee `evals/tasks/*.yaml`, crea (o reutiliza) en el espacio de AX los evaluadores
 Usa el SDK de Python v8 (`client.evaluators`, `client.tasks`), que envuelve la API de
 tareas; el CLI `ax` no puede expresar hoy las tareas de traza y sesión (`query_filters`).
 
-Requisito: una integración de IA en AX para el juez (Bedrock con Claude Haiku 5.5). Se
-indica con ARIZE_AI_INTEGRATION_ID o, si no existe, se crea con ARIZE_BEDROCK_ROLE_ARN
-(rol IAM que Arize puede asumir). Ver docs/runbook.md.
+Requisito: una integración de IA en AX para el juez (Vertex AI con Claude Haiku 5.5). Se
+indica con ARIZE_AI_INTEGRATION_ID o, si no existe, se crea con el proyecto y la región de
+GCP del lab (hay que dar acceso al proyecto a Arize). Ver docs/runbook.md.
 """
 
 from __future__ import annotations
@@ -76,10 +76,7 @@ def template_config(evaluator, integration_id: str, model_name: str, region: str
                 "ai_integration_id": integration_id,
                 "model_name": model_name,
                 "invocation_parameters": {"temperature": 0},
-                "provider_parameters": {
-                    "region": region,
-                    "bedrock_options": {"use_converse_endpoint": True},
-                },
+                "provider_parameters": {"region": region},
             },
         }
     )
@@ -119,26 +116,33 @@ def task_evaluator_input(evaluator_id: str, entry: dict, default_mappings: dict[
 def ensure_integration(client, space: str) -> str:
     if os.environ.get("ARIZE_AI_INTEGRATION_ID"):
         return os.environ["ARIZE_AI_INTEGRATION_ID"]
-    name = os.environ.get("ARIZE_AI_INTEGRATION_NAME", f"{PREFIX}-bedrock")
+    name = os.environ.get("ARIZE_AI_INTEGRATION_NAME", f"{PREFIX}-vertex")
     for item in _items(client.ai_integrations.list(name=name, space=space)):
         if getattr(item, "name", None) == name:
             return _id(item)
-    role_arn = os.environ.get("ARIZE_BEDROCK_ROLE_ARN")
-    if not role_arn:
+    project_id = os.environ.get("GCP_PROJECT_ID")
+    access_label = os.environ.get("ARIZE_GCP_PROJECT_ACCESS_LABEL")
+    if not project_id or not access_label:
         raise SystemExit(
             "No hay integración de IA para el juez. Define ARIZE_AI_INTEGRATION_ID (una "
-            "integración de Bedrock ya creada en AX) o ARIZE_BEDROCK_ROLE_ARN para crearla. "
+            "integración de Vertex AI ya creada en AX) o GCP_PROJECT_ID y "
+            "ARIZE_GCP_PROJECT_ACCESS_LABEL para crearla. "
             "Ver docs/runbook.md, sección 'Juez de las evals online'."
         )
-    from arize._generated.api_client.models.aws_provider_metadata_request import (
-        AwsProviderMetadataRequest,
+    from arize._generated.api_client.models.gcp_provider_metadata_request import (
+        GcpProviderMetadataRequest,
     )
 
     created = client.ai_integrations.create(
         name=name,
-        provider="AWS_BEDROCK",
-        model_names=[os.environ.get("JUDGE_MODEL_ID", "eu.anthropic.claude-haiku-5-5")],
-        provider_metadata=AwsProviderMetadataRequest(kind="AWS", role_arn=role_arn),
+        provider="VERTEX_AI",
+        model_names=[os.environ.get("JUDGE_MODEL_ID", "claude-haiku-5-5")],
+        provider_metadata=GcpProviderMetadataRequest(
+            kind="GCP",
+            project_id=project_id,
+            location=os.environ.get("GCP_REGION", "europe-west1"),
+            project_access_label=access_label,
+        ),
     )
     return _id(created)
 
@@ -148,8 +152,8 @@ def apply(dry_run: bool = False) -> list[str]:
     specs = load_task_specs()
     space = os.environ.get("ARIZE_SPACE_ID", "<ARIZE_SPACE_ID>")
     project = os.environ.get("ARIZE_PROJECT_NAME", "agentic-lab")
-    model = os.environ.get("JUDGE_MODEL_ID", "eu.anthropic.claude-haiku-5-5")
-    region = os.environ.get("AWS_REGION", "eu-west-1")
+    model = os.environ.get("JUDGE_MODEL_ID", "claude-haiku-5-5")
+    region = os.environ.get("GCP_REGION", "europe-west1")
     llm = {e.name: e for e in LLM_EVALUATORS}
     code = {e.name: e for e in CODE_EVALUATORS}
     actions: list[str] = []

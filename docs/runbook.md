@@ -8,7 +8,8 @@ los problemas habituales. Para el porqué de cada decisión: [DECISIONS.md](DECI
 | Qué | Versión probada | Para qué |
 | --- | --- | --- |
 | Docker Engine + Compose v2 | 29.x / 5.x (mínimo 20.10 / 2.24) | todos los servicios |
-| Terraform | 1.17.2 | AWS, Bindplane y Dynatrace |
+| Terraform | 1.17.2 | Google Cloud, Bindplane y Dynatrace |
+| gcloud CLI | reciente | credenciales de Terraform para Google Cloud |
 | Task | 3.54 (mínimo 3.37, por las tareas comodín) | punto de entrada |
 | sops + age | 3.13 / 1.1 | secretos cifrados |
 | uv | 0.11 | `task chat`, tests y lint en el host |
@@ -17,8 +18,9 @@ Memoria: ~4 GB para Bindplane server y ~3-4 GB para el resto. Linux o macOS con 
 Desktop; el colector lee `/var/lib/docker/containers` y `/var/run/docker.sock` del host
 Docker (con Docker Desktop son los de su máquina virtual, que es lo correcto).
 
-Cuentas: AWS con acceso a Claude en Bedrock (eu-west-1), tenant de Arize AX, entorno
-Dynatrace SaaS y licencia de Bindplane.
+Cuentas: proyecto de Google Cloud con Claude habilitado en Vertex AI, tenant de Arize AX,
+entorno Dynatrace SaaS y licencia de Bindplane. Terraform se autentica con
+`gcloud auth application-default login`.
 
 ## 2. Secretos
 
@@ -33,7 +35,8 @@ En otra máquina: copia tu clave age (`~/.config/sops/age/keys.txt`) y `task sec
 
 | Variable | De dónde sale |
 | --- | --- |
-| `AWS_PROFILE` | Tu perfil de administración o SSO. Solo lo usa Terraform. |
+| `GCP_PROJECT_ID`, `GCP_REGION` | Proyecto y región de Vertex AI. Terraform usa tus Application Default Credentials; necesitas poder crear cuentas de servicio, roles y claves en el proyecto. |
+| `GCP_BILLING_ACCOUNT` (opcional) | Cuenta de facturación, para crear el presupuesto con alarma. |
 | `ARIZE_SPACE_ID`, `ARIZE_API_KEY` | Arize AX → Settings → API Keys (la clave necesita permisos sobre el espacio). |
 | `DT_ENV_URL` | `https://<id>.live.dynatrace.com`, sin `.apps.` y sin barra final. |
 | `DT_INGEST_TOKEN` + `DT_AUTH_SCHEME` | **Access token** (`dt0c01.*`, `Api-Token`) con `openTelemetryTrace.ingest`, `logs.ingest`, `metrics.ingest`; o **platform token** (`dt0s16.*`, `Bearer`) con `openpipeline:traces:ingest`, `openpipeline:logs:ingest`, `openpipeline:metrics:ingest`. |
@@ -48,8 +51,8 @@ En otra máquina: copia tu clave age (`~/.config/sops/age/keys.txt`) y `task sec
 
 | Paso | Tarea | Qué hace |
 | --- | --- | --- |
-| 0 | `task aws:apply` | Usuario IAM `agentic-lab-bedrock` (solo los dos perfiles de inferencia), su clave en `.lab/aws/credentials` y el presupuesto. |
-| 0 | `task gate:0` | Llama a Sonnet 5.5 y Haiku 5.5 con ese usuario. |
+| 0 | `task gcp:apply` | Activa la API de Vertex AI, crea la cuenta de servicio `agentic-lab-vertex` (solo predicción), su clave en `.lab/gcp/credentials.json` y el presupuesto. |
+| 0 | `task gate:0` | Llama a Sonnet 5.5 y Haiku 5.5 con esa cuenta de servicio. |
 | 1 | `task build` | Imágenes del agente, servidor MCP (con el modelo de embeddings) y herramientas. |
 | 1 | `task bindplane:up` | Bindplane server + su Postgres, Prometheus y transform agent; crea la organización inicial y guarda la secret key del proyecto en `.lab/bindplane.env`. |
 | 1 | `task bindplane:apply` | Fuentes, procesadores, destinos y configuración `agentic-lab` (Terraform). |
@@ -63,12 +66,13 @@ En otra máquina: copia tu clave age (`~/.config/sops/age/keys.txt`) y `task sec
 
 ### Qué comprobar en cada puerta
 
-- **Puerta 0.** `task gate:0` imprime el ARN `…:user/lab/agentic-lab-bedrock` y una respuesta
-  de cada modelo. Si falla con `AccessDeniedException`, activa el acceso a los modelos de
-  Anthropic en la consola de Bedrock (el formulario de caso de uso es por cuenta).
+- **Puerta 0.** `task gate:0` imprime `agentic-lab-vertex@<proyecto>.iam.gserviceaccount.com`
+  y una respuesta de cada modelo. Si falla con 403 o 404, habilita los modelos de Anthropic en
+  Vertex AI → Model Garden (hay que aceptar sus condiciones una vez por proyecto) y comprueba
+  que están disponibles en `GCP_REGION`.
 - **Puerta 1.** `task gate:1` imprime un `trace_id` y un marcador `SECRET-PROMPT-…`. En
   Arize AX la traza tiene 3 spans (raíz `POST /poc` como CHAIN) y el marcador se lee; en
-  Dynatrace (`fetch spans | filter trace.id == toUid("<id>")`) tiene 4 spans y el marcador
+  Dynatrace (`fetch spans | filter trace.id == toUid("<id>")`) tiene 5 spans y el marcador
   no aparece. En la consola de Bindplane (http://localhost:3001) el colector
   `agentic-lab-collector` debe estar conectado y con la configuración `agentic-lab`.
 - **Puerta 2.** `task gate:2` exige 25/25 respuestas con `trace_id`. Abre una en ambos
@@ -81,15 +85,16 @@ En otra máquina: copia tu clave age (`~/.config/sops/age/keys.txt`) y `task sec
 
 ## 4. Juez de las evals online (único paso manual)
 
-Los experimentos usan el juez en local (Haiku 5.5 con el usuario del lab). Las **tareas
-online** las ejecuta Arize AX, que necesita su propia integración de IA con Bedrock: un rol
-IAM de tu cuenta que Arize pueda asumir (Arize AX → Settings → AI Integrations → AWS
-Bedrock muestra la relación de confianza exacta). Después, una de dos:
+Los experimentos usan el juez en local (Haiku 5.5 con la cuenta de servicio del lab). Las
+**tareas online** las ejecuta Arize AX, que necesita su propia integración de IA con
+Vertex AI: hay que dar acceso a tu proyecto de GCP a Arize (Arize AX → Settings → AI
+Integrations → Vertex AI muestra a quién conceder acceso y la etiqueta de acceso del
+proyecto). Después, una de dos:
 
 ```bash
 ARIZE_AI_INTEGRATION_ID=<id de la integración creada en AX>   # en .env
 # o bien, para que la cree el lab:
-ARIZE_BEDROCK_ROLE_ARN=arn:aws:iam::<cuenta>:role/<rol>
+ARIZE_GCP_PROJECT_ACCESS_LABEL=<etiqueta que indica AX>
 task evals:online
 ```
 
@@ -142,6 +147,8 @@ docker compose build --secret id=extra_ca,src=/ruta/a/ca-corporativa.pem
 | Trazas en Arize sin raíz | La raíz llega 30 s después (tail sampling). Si no llega, el colector se reinició a mitad de traza. |
 | Dynatrace devuelve 401/403 al colector | `DT_AUTH_SCHEME` no corresponde al tipo de token, o faltan scopes de ingesta. |
 | Métricas rechazadas en Dynatrace | Deben ser delta: comprueba que el procesador `cumulative-to-delta` sigue en la ruta de métricas. |
-| `gate:0` falla con `ValidationException` sobre el modelo | El identificador del perfil de inferencia no existe en tu región: `aws bedrock list-inference-profiles --region eu-west-1` y ajusta `SUPERVISOR_MODEL_ID` / `SUBAGENT_MODEL_ID`. |
-| El agente responde 502 | Fallo de Bedrock (credenciales, acceso al modelo o throttling). `task logs -- agent`. |
+| `gate:0` falla con 404 sobre el modelo | El identificador no existe o no está en esa región. Míralo en Vertex AI → Model Garden (algunos llevan sufijo de versión, `<modelo>@<fecha>`) y ajusta `SUPERVISOR_MODEL_ID` / `SUBAGENT_MODEL_ID` o `GCP_REGION`. |
+| `task gcp:apply` falla al crear el presupuesto | Tu usuario necesita permisos sobre la cuenta de facturación, o la moneda no coincide (`LAB_BUDGET_CURRENCY`). Deja `GCP_BILLING_ACCOUNT` vacío para omitirlo. |
+| `task gcp:apply`: la organización prohíbe crear claves de cuenta de servicio | Política `iam.disableServiceAccountKeyCreation`. Alternativa en DECISIONS.md («Google Cloud»). |
+| El agente responde 502 | Fallo de Vertex AI (credenciales, modelo no habilitado o cuota). `task logs -- agent`. |
 | Tras `scenario:db-down` las primeras peticiones fallan | El pool tarda unos segundos en reconectar; es parte de lo que se ve en Dynatrace. |

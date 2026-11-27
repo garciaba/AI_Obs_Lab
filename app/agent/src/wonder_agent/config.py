@@ -14,21 +14,18 @@ def _env(name: str, default: str) -> str:
 
 @dataclass(frozen=True)
 class Settings:
-    llm_provider: str = field(default_factory=lambda: _env("LLM_PROVIDER", "bedrock"))
-    aws_region: str = field(default_factory=lambda: _env("AWS_REGION", "eu-west-1"))
+    llm_provider: str = field(default_factory=lambda: _env("LLM_PROVIDER", "vertex"))
+    gcp_project: str = field(default_factory=lambda: _env("GCP_PROJECT_ID", ""))
+    gcp_region: str = field(default_factory=lambda: _env("GCP_REGION", "europe-west1"))
     supervisor_model: str = field(
-        default_factory=lambda: _env("SUPERVISOR_MODEL_ID", "eu.anthropic.claude-sonnet-5-5")
+        default_factory=lambda: _env("SUPERVISOR_MODEL_ID", "claude-sonnet-5-5")
     )
     subagent_model: str = field(
-        default_factory=lambda: _env("SUBAGENT_MODEL_ID", "eu.anthropic.claude-haiku-5-5")
+        default_factory=lambda: _env("SUBAGENT_MODEL_ID", "claude-haiku-5-5")
     )
     max_tokens: int = field(default_factory=lambda: int(_env("LLM_MAX_TOKENS", "2048")))
-    bedrock_max_attempts: int = field(
-        default_factory=lambda: int(_env("BEDROCK_MAX_ATTEMPTS", "4"))
-    )
-    bedrock_read_timeout_s: int = field(
-        default_factory=lambda: int(_env("BEDROCK_READ_TIMEOUT_SECONDS", "120"))
-    )
+    llm_max_retries: int = field(default_factory=lambda: int(_env("LLM_MAX_RETRIES", "3")))
+    llm_timeout_s: int = field(default_factory=lambda: int(_env("LLM_TIMEOUT_SECONDS", "120")))
     mcp_url: str = field(default_factory=lambda: _env("MCP_URL", "http://mcp-server:8000/mcp"))
     database_url: str = field(
         default_factory=lambda: _env(

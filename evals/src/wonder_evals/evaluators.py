@@ -10,7 +10,7 @@ image_url_correctness, tool_call_count (código). El lab añade:
   session_resolution       sesión: ¿la conversación resolvió lo que pedía el usuario?
 
 Cada definición sirve para dos cosas:
-  - experimentos (regresión): se ejecuta en local con Claude Haiku 5.5 en Bedrock como juez;
+  - experimentos (regresión): se ejecuta en local con Claude Haiku 5.5 en Vertex AI como juez;
   - tareas online de AX: `online.py` la crea como evaluador en el espacio de Arize.
 
 Único cambio respecto a las plantillas originales: los nombres de las herramientas son los

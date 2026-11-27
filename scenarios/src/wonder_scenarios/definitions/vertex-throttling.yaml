@@ -1,0 +1,12 @@
+name: vertex-throttling
+title: Throttling de Vertex AI
+summary: Carga concurrente por encima de la cuota del proyecto (30 peticiones a la vez).
+concurrency: 30
+repeat: 3
+timeout_s: 600
+requests_from: reference
+request_limit: 20
+expect: {}
+look_at:
+  arize: "Spans LLM con error 429 (RESOURCE_EXHAUSTED) y la duración extra de los reintentos."
+  dynatrace: "Respuestas 429 de aiplatform.googleapis.com (tile 'Vertex AI: respuestas HTTP'), latencia y errores del agente."

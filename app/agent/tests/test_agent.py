@@ -1,4 +1,4 @@
-"""Tests del agente con Bedrock simulado y el servidor MCP real en memoria.
+"""Tests del agente con LLM simulado y el servidor MCP real en memoria.
 
 El modelo simulado (`LLM_PROVIDER=fake`) sustituye a Claude; las herramientas son las del
 servidor FastMCP de verdad, servidas por una sesión MCP en memoria sobre un almacén en
@@ -129,11 +129,11 @@ async def test_recursion_limit_stops_a_looping_subagent(lab):
 
 async def test_supervisor_model_override_and_expiry(lab, monkeypatch):
     service, *_ = lab
-    service.overrides.apply({"supervisor_model": "eu.anthropic.claude-haiku-5-5"})
+    service.overrides.apply({"supervisor_model": "claude-haiku-5-5"})
     result = await ask(service, "Hello!")
-    assert result.supervisor_model == "eu.anthropic.claude-haiku-5-5"
+    assert result.supervisor_model == "claude-haiku-5-5"
     service.overrides.reset()
-    assert service.supervisor_model_id == "eu.anthropic.claude-sonnet-5-5"
+    assert service.supervisor_model_id == "claude-sonnet-5-5"
 
     overrides = RuntimeOverrides(default_ttl_s=10)
     overrides.apply({"supervisor_recursion_limit": 50})

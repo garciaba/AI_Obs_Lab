@@ -84,7 +84,7 @@ def setup_logging_stdout(level: str | None = None) -> None:
         handler._lab_stdout = True  # type: ignore[attr-defined]
         root.addHandler(handler)
     # Ruido habitual de librerías
-    for noisy in ("httpx", "httpcore", "botocore", "urllib3", "chromadb.telemetry"):
+    for noisy in ("httpx", "httpcore", "urllib3", "google.auth", "chromadb.telemetry"):
         logging.getLogger(noisy).setLevel(logging.WARNING)
 
 

@@ -1,6 +1,8 @@
 # Lab de IA agéntica: Arize AX + Bindplane + Dynatrace — Diseño
 
 > Copia del documento de diseño (fuente de verdad del lab). Los dos diagramas del original se reproducen aquí como texto.
+>
+> **Cambio posterior al diseño:** el LLM ya no es Claude en Amazon Bedrock sino **Claude en Vertex AI (Google Cloud)**. Donde este documento dice Bedrock, AWS, perfiles de inferencia EU, `infra/aws` o «throttling de Bedrock», el repositorio usa Vertex AI, una cuenta de servicio de GCP, `infra/gcp` y el escenario `vertex-throttling`. El resto del diseño no cambia. Detalle en [DECISIONS.md](DECISIONS.md#google-cloud-fase-0).
 
 2026-11-26 · @Miguel
 

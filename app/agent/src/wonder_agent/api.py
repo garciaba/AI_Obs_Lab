@@ -31,8 +31,8 @@ from opentelemetry.instrumentation.urllib3 import URLLib3Instrumentor  # noqa: E
 LangChainInstrumentor().instrument(tracer_provider=telemetry.tracer_provider)
 # Propaga el contexto de traza dentro de las peticiones MCP (no genera spans).
 MCPInstrumentor().instrument(tracer_provider=telemetry.tracer_provider)
-# APM clásico: cliente HTTP hacia el servidor MCP, llamadas HTTP a Bedrock (botocore usa
-# urllib3) y consultas a Postgres del checkpointer.
+# APM clásico: cliente HTTP hacia el servidor MCP y hacia Vertex AI (el SDK de Anthropic
+# usa httpx; la renovación del token de Google usa urllib3) y consultas a Postgres.
 HTTPXClientInstrumentor().instrument()
 URLLib3Instrumentor().instrument()
 PsycopgInstrumentor().instrument(enable_commenter=False)

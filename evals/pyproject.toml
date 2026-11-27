@@ -8,7 +8,8 @@ dependencies = [
     "httpx",
     "pandas",
     "pyyaml",
-    "langchain-aws",
+    "langchain-google-vertexai",
+    "anthropic[vertex]",
     "langchain-core",
 ]
 

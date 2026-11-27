@@ -2,7 +2,10 @@
 """Comprueba, sobre la salida a fichero del colector de referencia, que el pipeline hace
 lo que pide el diseño. Es la versión sin credenciales de las puertas 1 y 2.
 
-Uso: verify_pipeline.py <dir-salida> <trace_id> [--tree]
+Uso: verify_pipeline.py <dir-salida> <trace_id> [--tree] [--poc]
+
+Con --poc verifica la traza sintética de `gate 1` (sin agente ni servidor MCP): solo el
+reparto, la redacción y el tratamiento de los spans HTTP del SDK de Anthropic.
 
 Comprobaciones para la traza indicada:
   Dynatrace  recibe todos los spans (agente y servidor MCP en una sola traza, con spans de
@@ -47,6 +50,7 @@ def load_spans(path: Path) -> list[dict]:
             for ss in rs.get("scopeSpans", []):
                 for span in ss.get("spans", []):
                     span["resource"] = resource
+                    span["scope"] = ss.get("scope", {}).get("name", "")
                     span["attrs"] = _attrs(span.get("attributes"))
                     spans.append(span)
     return spans
@@ -112,6 +116,7 @@ def main() -> int:
         if not ok:
             failures.append(message)
 
+    poc = "--poc" in sys.argv
     dt = [s for s in load_spans(out / "dynatrace-traces.jsonl") if s["traceId"] == trace_id]
     ax = [s for s in load_spans(out / "arize-traces.jsonl") if s["traceId"] == trace_id]
     if "--tree" in sys.argv:
@@ -121,10 +126,11 @@ def main() -> int:
     print(f"\nDynatrace: traza {trace_id}")
     services = {s["resource"].get("service.name") for s in dt}
     check(len(dt) > 0, f"la traza llega ({len(dt)} spans)")
-    check(
-        {"wonder-toys-agent", "wonder-toys-mcp"} <= services,
-        f"agente y servidor MCP en la misma traza ({sorted(x for x in services if x)})",
-    )
+    if not poc:
+        check(
+            {"wonder-toys-agent", "wonder-toys-mcp"} <= services,
+            f"agente y servidor MCP en la misma traza ({sorted(x for x in services if x)})",
+        )
     ids = {s["spanId"] for s in dt}
     orphans = [s["name"] for s in dt if s.get("parentSpanId") and s["parentSpanId"] not in ids]
     check(not orphans, f"traza unida, sin spans huérfanos {orphans[:3] or ''}")
@@ -145,6 +151,14 @@ def main() -> int:
         "conserva atributos gen_ai.* (modelo, tokens)",
     )
 
+    sdk_dt = [s for s in dt if s["scope"].startswith("com.anthropic.sdk")]
+    if poc or sdk_dt:
+        check(bool(sdk_dt), f"incluye los spans HTTP del SDK de Anthropic ({len(sdk_dt)})")
+        check(
+            not any(k.startswith("gen_ai.usage.") for s in sdk_dt for k in s["attrs"]),
+            "sin tokens duplicados en los spans HTTP del SDK",
+        )
+
     print("\nArize AX")
     check(len(ax) > 0, f"la traza llega ({len(ax)} spans)")
     non_ai = [s["name"] for s in ax if not any(k in s["attrs"] for k in AI_KEYS)]
@@ -161,9 +175,13 @@ def main() -> int:
             "la raíz lleva entrada y salida",
         )
         check(bool(root.get("session.id")), "la raíz lleva session.id")
+    check(
+        not any(s["scope"].startswith("com.anthropic.sdk") for s in ax),
+        "sin spans HTTP del SDK de Anthropic (no duplican el span LLM)",
+    )
     kinds = {s["attrs"].get("openinference.span.kind") for s in ax}
     check(
-        {"LLM", "TOOL", "CHAIN"} <= kinds,
+        ({"LLM", "CHAIN"} if poc else {"LLM", "TOOL", "CHAIN"}) <= kinds,
         f"tipos de span presentes: {sorted(k for k in kinds if k)}",
     )
     check(
@@ -176,6 +194,17 @@ def main() -> int:
     )
     ax_ids = {s["spanId"] for s in ax}
     check(ax_ids <= ids, "mismos span_id que en Dynatrace (no se reescriben)")
+
+    if poc:
+        logs = load_logs(out / "dynatrace-logs.jsonl")
+        check(
+            any(r.get("traceId", "").lower() == trace_id for r in logs),
+            "log de la prueba con el trace_id",
+        )
+        print(
+            f"\n{'PIPELINE OK' if not failures else f'{len(failures)} comprobación(es) fallida(s)'}"
+        )
+        return 1 if failures else 0
 
     print("\nLogs")
     logs = load_logs(out / "dynatrace-logs.jsonl")

@@ -1,7 +1,7 @@
 """Experimentos de regresión sobre el dataset.
 
 La tarea de cada fila es una petición real al agente; los evaluadores son los de
-`evaluators.py` con Claude Haiku 5.5 (Bedrock) como juez.
+`evaluators.py` con Claude Haiku 5.5 (Vertex AI) como juez.
 
   - Con Arize AX (`run_ax`): el dataset y el experimento viven en AX
     (`client.datasets.create`, `client.experiments.run`).

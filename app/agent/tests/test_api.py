@@ -55,10 +55,10 @@ async def test_chat_accepts_message_history_and_validates_input(client):
 async def test_admin_overrides_roundtrip(client):
     r = await client.put(
         "/admin/overrides",
-        json={"supervisor_model": "eu.anthropic.claude-haiku-5-5", "ttl_seconds": 60},
+        json={"supervisor_model": "claude-haiku-5-5", "ttl_seconds": 60},
     )
-    assert r.json()["overrides"] == {"supervisor_model": "eu.anthropic.claude-haiku-5-5"}
+    assert r.json()["overrides"] == {"supervisor_model": "claude-haiku-5-5"}
     health = (await client.get("/health")).json()
-    assert health["supervisor_model"] == "eu.anthropic.claude-haiku-5-5"
+    assert health["supervisor_model"] == "claude-haiku-5-5"
     assert (await client.put("/admin/overrides", json={"x": 1})).status_code == 400
     assert (await client.delete("/admin/overrides")).json()["overrides"] == {}

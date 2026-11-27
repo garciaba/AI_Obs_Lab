@@ -1,6 +1,6 @@
 """Puertas de las fases 0 y 1.
 
-gate 0   una llamada a Bedrock responde con el usuario IAM del lab
+gate 0   una llamada a Vertex AI responde con la cuenta de servicio del lab
 gate 1   un script mínimo con OpenInference envía una traza, un log y una métrica al
          colector; la misma traza debe verse en Arize AX (completa) y en Dynatrace
          (redactada)
@@ -16,52 +16,60 @@ import time
 
 
 def gate0() -> int:
-    import boto3
+    import google.auth
+    from langchain_google_vertexai.model_garden import ChatAnthropicVertex
 
-    region = os.environ.get("AWS_REGION", "eu-west-1")
-    identity = boto3.client("sts", region_name=region).get_caller_identity()
-    arn = identity["Arn"]
-    print(f"Identidad AWS: {arn}")
-    expected = os.environ.get("LAB_IAM_USER", "agentic-lab-bedrock")
-    is_lab_user = arn.endswith(f"user/lab/{expected}") or arn.endswith(f"user/{expected}")
-    if not is_lab_user:
-        print(f"  ⚠ no es el usuario del lab ({expected}); revisa .lab/aws/credentials")
-    runtime = boto3.client("bedrock-runtime", region_name=region)
+    credentials, default_project = google.auth.default(
+        scopes=["https://www.googleapis.com/auth/cloud-platform"]
+    )
+    identity = getattr(credentials, "service_account_email", None) or type(credentials).__name__
+    project = os.environ.get("GCP_PROJECT_ID") or default_project
+    region = os.environ.get("GCP_REGION", "europe-west1")
+    print(f"Identidad de Google Cloud: {identity} (proyecto {project}, región {region})")
+    expected = os.environ.get("LAB_SERVICE_ACCOUNT", "agentic-lab-vertex")
+    is_lab_account = str(identity).startswith(f"{expected}@")
+    if not is_lab_account:
+        print(
+            f"  ⚠ no es la cuenta de servicio del lab ({expected}); "
+            "revisa .lab/gcp/credentials.json"
+        )
     failures = 0
     for role, var, default in (
-        ("supervisor", "SUPERVISOR_MODEL_ID", "eu.anthropic.claude-sonnet-5-5"),
-        ("subagentes/juez", "SUBAGENT_MODEL_ID", "eu.anthropic.claude-haiku-5-5"),
+        ("supervisor", "SUPERVISOR_MODEL_ID", "claude-sonnet-5-5"),
+        ("subagentes/juez", "SUBAGENT_MODEL_ID", "claude-haiku-5-5"),
     ):
         model = os.environ.get(var, default)
         try:
-            response = runtime.converse(
-                modelId=model,
-                messages=[
-                    {"role": "user", "content": [{"text": "Reply with the single word: ready"}]}
-                ],
-                inferenceConfig={"maxTokens": 20},
+            llm = ChatAnthropicVertex(
+                model_name=model,
+                project=project,
+                location=region,
+                max_output_tokens=20,
+                max_retries=1,
+                timeout=60.0,
             )
-            text = response["output"]["message"]["content"][0]["text"].strip()
-            usage = response["usage"]
+            response = llm.invoke("Reply with the single word: ready")
+            usage = response.usage_metadata or {}
             print(
-                f"  ok   {role}: {model} → {text!r} "
-                f"({usage['inputTokens']}+{usage['outputTokens']} tokens)"
+                f"  ok   {role}: {model} → {str(response.content).strip()!r} "
+                f"({usage.get('input_tokens', '?')}+{usage.get('output_tokens', '?')} tokens)"
             )
         except Exception as exc:  # noqa: BLE001 - se informa del motivo exacto
             failures += 1
-            print(f"  FAIL {role}: {model} → {type(exc).__name__}: {exc}")
-    if failures or not is_lab_user:
+            print(f"  FAIL {role}: {model} → {type(exc).__name__}: {str(exc)[:400]}")
+    if failures or not is_lab_account:
         print(
-            "\nPUERTA 0 NO SUPERADA. Causas habituales: acceso al modelo sin activar en la "
-            "consola de Bedrock, o credenciales que no son las del usuario del lab."
+            "\nPUERTA 0 NO SUPERADA. Causas habituales: el modelo no está habilitado en "
+            "Vertex AI Model Garden para el proyecto, no está disponible en esa región, o "
+            "las credenciales no son las de la cuenta de servicio del lab."
         )
         return 1
-    print("\nPUERTA 0 OK: Bedrock responde con el usuario del lab.")
+    print("\nPUERTA 0 OK: Vertex AI responde con la cuenta de servicio del lab.")
     return 0
 
 
 def gate1() -> int:
-    """Prueba de concepto del pipeline: no usa ni el agente ni Bedrock."""
+    """Prueba de concepto del pipeline: no usa ni el agente ni Vertex AI."""
     os.environ.setdefault("OTEL_SERVICE_NAME", "wonder-toys-pipeline-poc")
     from labcommon.telemetry import setup_telemetry
     from openinference.instrumentation import using_attributes
@@ -88,19 +96,34 @@ def gate1() -> int:
         with using_attributes(session_id=f"poc-{trace_id[:8]}"):
             with tracer.start_as_current_span("poc_agent") as agent:
                 agent.set_attributes({"openinference.span.kind": "AGENT", "input.value": secret})
-                with tracer.start_as_current_span("ChatBedrockConverse") as llm:
+                with tracer.start_as_current_span("ChatAnthropicVertex") as llm:
                     llm.set_attributes(
                         {
                             "openinference.span.kind": "LLM",
-                            "llm.model_name": "eu.anthropic.claude-haiku-5-5",
+                            "llm.model_name": "claude-haiku-5-5",
                             "gen_ai.operation.name": "chat",
-                            "gen_ai.request.model": "eu.anthropic.claude-haiku-5-5",
+                            "gen_ai.request.model": "claude-haiku-5-5",
                             "gen_ai.usage.input_tokens": 12,
                             "gen_ai.usage.output_tokens": 5,
                             "llm.input_messages.0.message.role": "user",
                             "llm.input_messages.0.message.content": secret,
                             "input.value": secret,
                             "output.value": f"answer to {secret}",
+                        }
+                    )
+                # Como el span que emite el SDK de Anthropic por cada intento HTTP a Vertex.
+                sdk = trace.get_tracer("com.anthropic.sdk.python.vertex")
+                with sdk.start_as_current_span(
+                    "anthropic.messages.create", kind=SpanKind.CLIENT
+                ) as http:
+                    http.set_attributes(
+                        {
+                            "server.address": "europe-west1-aiplatform.googleapis.com",
+                            "http.response.status_code": 200,
+                            "gen_ai.operation.name": "chat",
+                            "gen_ai.request.model": "claude-haiku-5-5",
+                            "gen_ai.usage.input_tokens": 12,
+                            "gen_ai.usage.output_tokens": 5,
                         }
                     )
                 with tracer.start_as_current_span("SELECT wonder", kind=SpanKind.CLIENT) as db:
@@ -120,13 +143,13 @@ def gate1() -> int:
 Comprueba (la raíz tarda ~30 s más en llegar a Arize: espera del tail sampling):
 
   Arize AX   proyecto "{project}" → Traces → {trace_id}
-             · 3 spans: POST /poc (CHAIN, raíz), poc_agent (AGENT), ChatBedrockConverse (LLM)
-             · el span SELECT NO aparece (no es de IA)
+             · 3 spans: POST /poc (CHAIN, raíz), poc_agent (AGENT), ChatAnthropicVertex (LLM)
+             · los spans SELECT y anthropic.messages.create NO aparecen
              · el marcador SÍ se lee en input/output (contenido completo)
 
   Dynatrace  Notebooks → DQL:
                fetch spans | filter trace.id == toUid("{trace_id}")
-             · 4 spans, incluido SELECT wonder
+             · 5 spans, incluidos SELECT wonder y anthropic.messages.create (sin gen_ai.usage.*)
              · el marcador NO aparece en ningún atributo (redactado)
                fetch logs | filter trace_id == "{trace_id}"
                timeseries sum(wonder.poc.requests)

@@ -13,7 +13,7 @@ EXPECTED = {
     "prompt-injection",
     "tool-loop",
     "model-swap",
-    "bedrock-throttling",
+    "vertex-throttling",
 }
 
 
@@ -52,7 +52,9 @@ def test_overrides_are_accepted_by_the_agent():
         for phase in spec.get("phases") or [spec]:
             if phase.get("overrides"):
                 RuntimeOverrides().apply(phase["overrides"])
-    assert runner.load("model-swap")["phases"][1]["overrides"]["supervisor_model"].startswith("eu.")
+    assert runner.load("model-swap")["phases"][1]["overrides"]["supervisor_model"].startswith(
+        "claude-haiku"
+    )
 
 
 @pytest.fixture

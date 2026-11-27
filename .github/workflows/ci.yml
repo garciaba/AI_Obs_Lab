@@ -1,4 +1,4 @@
-# Validación sin credenciales en cada push y PR: lint, tests con Bedrock simulado,
+# Validación sin credenciales en cada push y PR: lint, tests con el LLM simulado,
 # terraform validate, build de las imágenes y smoke test de extremo a extremo.
 name: ci
 
@@ -32,7 +32,7 @@ jobs:
     runs-on: ubuntu-24.04
     strategy:
       matrix:
-        module: [aws, bindplane, dynatrace]
+        module: [gcp, bindplane, dynatrace]
     steps:
       - uses: actions/checkout@v4
       - uses: hashicorp/setup-terraform@v3

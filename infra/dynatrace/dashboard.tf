@@ -57,17 +57,17 @@ locals {
       viz   = "lineChart"
       query = <<-DQL
         fetch spans
-        | filter service.name == "${local.agent}" and isNotNull(gen_ai.request.model)
+        | filter service.name == "${local.agent}" and openinference.span.kind == "LLM"
         | fieldsAdd duration_ms = toLong(duration) / 1000000.0
         | makeTimeseries avg_ms = avg(duration_ms), by:{gen_ai.request.model}, interval:1m
       DQL
     },
     {
-      title = "Bedrock: respuestas HTTP (throttling = 429)"
+      title = "Vertex AI: respuestas HTTP (cuota agotada = 429)"
       viz   = "barChart"
       query = <<-DQL
         fetch spans
-        | filter service.name == "${local.agent}" and span.kind == "client" and contains(server.address, "bedrock")
+        | filter service.name == "${local.agent}" and span.kind == "client" and contains(server.address, "aiplatform.googleapis.com")
         | makeTimeseries calls = count(), by:{http.response.status_code}, interval:1m
       DQL
     },

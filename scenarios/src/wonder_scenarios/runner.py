@@ -27,7 +27,7 @@ from wonder_evals import agent_client
 from wonder_evals.dataset import reference_requests
 
 MCP_ADMIN_URL = os.environ.get("MCP_ADMIN_URL", "http://mcp-server:8000")
-DEFAULTS = {"SUBAGENT_MODEL_ID": "eu.anthropic.claude-haiku-5-5"}
+DEFAULTS = {"SUBAGENT_MODEL_ID": "claude-haiku-5-5"}
 
 
 def _definitions() -> Path:

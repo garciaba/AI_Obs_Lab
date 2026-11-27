@@ -36,6 +36,9 @@ echo "→ Puerta 2 con el LLM simulado: 25 peticiones de referencia"
 echo "→ Un escenario completo (herramienta caída) y su reversión"
 "${DC[@]}" --profile tools run --rm --no-deps -T tools scenario run tool-error
 
+echo "→ Puerta 1 (prueba de concepto del pipeline) contra el colector de referencia"
+poc_id="$("${DC[@]}" --profile tools run --rm --no-deps -T tools gate 1 | awk '/trace_id:/ {print $2; exit}')"
+
 echo "→ Verificando el pipeline con una traza nueva"
 trace_id="$(curl -fsS --noproxy '*' localhost:8080/chat -H 'content-type: application/json' \
   -d '{"message":"Show me some dinosaur toys","user_id":"eval-user-001"}' \
@@ -43,4 +46,5 @@ trace_id="$(curl -fsS --noproxy '*' localhost:8080/chat -H 'content-type: applic
 # Espera del tail sampling (5 s en el smoke) + batch + exportación periódica de métricas.
 sleep 40
 python3 ci/verify_pipeline.py "$OUT" "$trace_id"
+python3 ci/verify_pipeline.py "$OUT" "$poc_id" --poc
 echo "SMOKE OK"

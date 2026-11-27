@@ -21,8 +21,8 @@ Escenarios: [docs/scenarios/](docs/scenarios/README.md)
 ```
 Docker Compose en tu máquina                                   SaaS
 ┌───────────────────────────────────────────────────────┐
-│  Escenarios y carga ──► Agente (LangGraph, FastAPI) ──┼──► Amazon Bedrock
-│                          supervisor  (Sonnet 5.5)     │    perfiles de inferencia EU
+│  Escenarios y carga ──► Agente (LangGraph, FastAPI) ──┼──► Vertex AI (Google Cloud)
+│                          supervisor  (Sonnet 5.5)     │    Claude en Model Garden
 │                          ├ catalog_agent (Haiku 5.5)  │
 │                          └ orders_agent  (Haiku 5.5)  │
 │                               │ MCP (streamable HTTP) │
@@ -45,7 +45,7 @@ Docker Compose en tu máquina                                   SaaS
 | `app/common` | Telemetría compartida (trazas, logs y métricas por OTLP) |
 | `scenarios` | Los 9 escenarios de fallo (un YAML cada uno), su runner y las puertas 0-2 |
 | `evals` | Dataset, 10 evaluadores, experimentos y tareas online de Arize AX |
-| `infra/aws` | Usuario IAM mínimo para los dos perfiles de inferencia y presupuesto |
+| `infra/gcp` | Cuenta de servicio mínima para invocar Claude en Vertex AI y presupuesto |
 | `infra/bindplane` | Fuentes, procesadores, destinos y configuración del colector |
 | `infra/dynatrace` | Dashboard, alertas y OpenPipeline (opcional) |
 | `docs` | Diseño, decisiones, runbook y una ficha por escenario |
@@ -55,7 +55,8 @@ Docker Compose en tu máquina                                   SaaS
 
 - Docker Engine con Compose v2, Terraform ≥ 1.9, [Task](https://taskfile.dev) ≥ 3.37,
   sops + age y [uv](https://docs.astral.sh/uv/). Unos 8 GB de RAM libres.
-- Cuenta AWS con acceso a Claude Sonnet 5.5 y Haiku 5.5 en Bedrock (eu-west-1).
+- Proyecto de Google Cloud con Claude Sonnet 5.5 y Haiku 5.5 habilitados en Vertex AI
+  Model Garden, y `gcloud` autenticado (`gcloud auth application-default login`).
 - Tenant de Arize AX, entorno Dynatrace SaaS y licencia de Bindplane.
 
 ## Secretos
@@ -69,7 +70,7 @@ Rellena `.env` (cada variable está explicada en el propio fichero y en el
 
 | Variable | Valor |
 | --- | --- |
-| `AWS_REGION`, `AWS_PROFILE` | `eu-west-1` y tu perfil de administración (solo para Terraform) |
+| `GCP_PROJECT_ID`, `GCP_REGION` | Proyecto y región de Vertex AI (`europe-west1`) |
 | `ARIZE_SPACE_ID`, `ARIZE_API_KEY`, `ARIZE_PROJECT_NAME` | Espacio, clave y proyecto de AX (`agentic-lab`) |
 | `DT_ENV_URL` | `https://<id-entorno>.live.dynatrace.com` |
 | `DT_INGEST_TOKEN`, `DT_AUTH_SCHEME` | Token de ingesta OTLP; `Bearer` (platform) o `Api-Token` (access) |
@@ -88,7 +89,7 @@ task secrets:encrypt   # .env → secrets.enc.env
 
 `task up` lo encadena; cada paso es también una tarea suelta.
 
-1. **AWS** (`task aws:apply`): usuario IAM mínimo y presupuesto. → `task gate:0`
+1. **Google Cloud** (`task gcp:apply`): cuenta de servicio mínima y presupuesto. → `task gate:0`
 2. **Imágenes** (`task build`).
 3. **Bindplane server** (`task bindplane:up`): arranca el servidor y lee su secret key.
 4. **Pipeline** (`task bindplane:apply`): Terraform habla con el servidor y crea la
@@ -101,7 +102,7 @@ Después, las evaluaciones (`task evals`, `task gate:3`) y los escenarios.
 
 | Puerta | Comando | Se supera cuando |
 | --- | --- | --- |
-| 0 | `task gate:0` | Bedrock responde con el usuario del lab |
+| 0 | `task gate:0` | Vertex AI responde con la cuenta de servicio del lab |
 | 1 | `task gate:1` | La misma traza aparece en Arize AX (completa) y en Dynatrace (redactada) |
 | 2 | `task gate:2` | Las 25 peticiones de referencia producen trazas unidas de extremo a extremo |
 | 3 | `task gate:3` | Un cambio de prompt muestra su diferencia en un experimento |
@@ -117,7 +118,7 @@ task seed                                    # restaura catálogo, inventario y 
 task evals                                   # dataset + experimento + tareas online en AX
 task scenario:list
 task down                                    # para; `task up` vuelve a levantar
-task destroy                                 # borra todo: AX, Dynatrace, Bindplane, AWS y local
+task destroy                                 # borra todo: AX, Dynatrace, Bindplane, GCP y local
 ```
 
 Escenarios (`task scenario:<nombre>`, se revierten solos):
@@ -132,7 +133,7 @@ Escenarios (`task scenario:<nombre>`, se revierten solos):
 | `prompt-injection` | Instrucciones ocultas en la ficha de producto | Solo AX |
 | `tool-loop` | Recursión alta y petición ambigua | AX la trayectoria; Dynatrace tokens y latencia |
 | `model-swap` | Supervisor de Sonnet a Haiku | AX el experimento; Dynatrace coste y latencia |
-| `bedrock-throttling` | Carga por encima de la cuota | Ambos |
+| `vertex-throttling` | Carga por encima de la cuota de Vertex AI | Ambos |
 
 ## Validar sin credenciales
 
@@ -147,6 +148,6 @@ y la traza unida.
 
 ## Estado
 
-Construido y validado sin credenciales: nada se ha aplicado todavía contra AWS, Arize AX,
+Construido y validado sin credenciales: nada se ha aplicado todavía contra Google Cloud, Arize AX,
 Dynatrace ni un Bindplane con licencia. Lo que falta por confirmar está en
 [docs/DECISIONS.md](docs/DECISIONS.md#qué-se-validó-y-qué-no).

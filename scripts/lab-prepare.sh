@@ -14,7 +14,7 @@ if [ ! -f .env ]; then
   fi
 fi
 
-mkdir -p .lab/aws evals/results
+mkdir -p .lab/gcp evals/results
 ENV_FILE=.lab/bindplane.env
 if [ ! -f "$ENV_FILE" ]; then
   uuid() { cat /proc/sys/kernel/random/uuid 2>/dev/null || uuidgen | tr '[:upper:]' '[:lower:]'; }
@@ -26,4 +26,4 @@ if [ ! -f "$ENV_FILE" ]; then
   } > "$ENV_FILE"
   chmod 600 "$ENV_FILE"
 fi
-[ -f .lab/aws/credentials ] || : > .lab/aws/credentials
+[ -f .lab/gcp/credentials.json ] || echo "{}" > .lab/gcp/credentials.json

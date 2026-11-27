@@ -1,8 +1,9 @@
-"""Fábrica de modelos: Claude en Amazon Bedrock (Converse) o un modelo simulado.
+"""Fábrica de modelos: Claude en Vertex AI (Google Cloud) o un modelo simulado.
 
-`LLM_PROVIDER=bedrock` (por defecto) usa `ChatBedrockConverse` con los perfiles de
-inferencia EU. `LLM_PROVIDER=fake` usa un modelo determinista sin red, para los tests
-unitarios y el smoke test de CI (Bedrock simulado).
+`LLM_PROVIDER=vertex` (por defecto) usa `ChatAnthropicVertex`: los modelos de Anthropic
+servidos por Google en Vertex AI Model Garden, con las credenciales de la cuenta de
+servicio del lab (GOOGLE_APPLICATION_CREDENTIALS). `LLM_PROVIDER=fake` usa un modelo
+determinista sin red, para los tests unitarios y el smoke test de CI (LLM simulado).
 """
 
 from __future__ import annotations
@@ -15,21 +16,20 @@ from wonder_agent.config import Settings
 
 
 @lru_cache(maxsize=8)
-def _bedrock(model_id: str, region: str, max_tokens: int, max_attempts: int, read_timeout: int):
-    from botocore.config import Config
-    from langchain_aws import ChatBedrockConverse
+def _vertex(
+    model_id: str, project: str, region: str, max_tokens: int, max_retries: int, timeout: int
+):
+    from langchain_google_vertexai.model_garden import ChatAnthropicVertex
 
-    return ChatBedrockConverse(
-        model=model_id,
-        region_name=region,
-        max_tokens=max_tokens,
-        # Reintentos "standard" de botocore: backoff exponencial ante ThrottlingException.
-        # Cada intento es una llamada HTTP visible en Dynatrace (escenario de throttling).
-        config=Config(
-            retries={"max_attempts": max_attempts, "mode": "standard"},
-            read_timeout=read_timeout,
-            connect_timeout=10,
-        ),
+    return ChatAnthropicVertex(
+        model_name=model_id,
+        project=project or None,  # sin valor, el del fichero de credenciales
+        location=region,
+        max_output_tokens=max_tokens,
+        # Reintentos con backoff ante 429 (cuota agotada) y 5xx. Cada intento es una
+        # llamada HTTP visible en Dynatrace (escenario de throttling).
+        max_retries=max_retries,
+        timeout=float(timeout),
     )
 
 
@@ -38,10 +38,11 @@ def get_model(settings: Settings, model_id: str, role: str) -> BaseChatModel:
         from wonder_agent.fake_llm import FakeToyStoreModel
 
         return FakeToyStoreModel(role=role, model_id=model_id)
-    return _bedrock(
+    return _vertex(
         model_id,
-        settings.aws_region,
+        settings.gcp_project,
+        settings.gcp_region,
         settings.max_tokens,
-        settings.bedrock_max_attempts,
-        settings.bedrock_read_timeout_s,
+        settings.llm_max_retries,
+        settings.llm_timeout_s,
     )

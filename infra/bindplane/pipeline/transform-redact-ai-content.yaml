@@ -18,3 +18,6 @@ transform/redact-ai-content:
     - delete_key(span.attributes, "gen_ai.system_instructions")
     - delete_key(span.attributes, "gen_ai.tool.definitions")
     - delete_matching_keys(span.attributes, "^gen_ai\\.tool\\.call\\.(arguments|result)$")
+    # Los tokens ya van en el span LLM de OpenInference: se quitan del span HTTP del SDK
+    # de Anthropic para que las sumas de tokens en Dynatrace no cuenten doble.
+    - delete_matching_keys(span.attributes, "^gen_ai\\.usage\\.") where IsMatch(scope.name, "^com\\.anthropic\\.sdk")

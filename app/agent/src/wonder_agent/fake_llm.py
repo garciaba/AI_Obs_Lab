@@ -1,4 +1,4 @@
-"""Modelo de chat simulado y determinista ("Bedrock simulado").
+"""Modelo de chat simulado y determinista ("LLM simulado").
 
 Reproduce el esqueleto del comportamiento de Claude en este agente sin llamar a ningún
 LLM: el supervisor delega según palabras clave y redacta con lo que devuelven los

@@ -1,4 +1,4 @@
-# Rama Arize: descarta todo span que no sea de IA (condición verdadera = se descarta).
+# Rama Arize: descarta todo span que no sea de IA (cualquier condición verdadera = se descarta).
 # Arize ingiere también los spans GenAI de OTel (gen_ai.*), así que se conservan.
 filter/ai-spans-only:
   error_mode: ignore
@@ -8,3 +8,7 @@ filter/ai-spans-only:
       span.attributes["gen_ai.operation.name"] == nil and
       span.attributes["gen_ai.request.model"] == nil and
       span.attributes["gen_ai.tool.name"] == nil
+    # El SDK de Anthropic para Vertex AI emite un span CLIENT por cada intento HTTP, con
+    # atributos gen_ai.*. Es la vista de dependencia externa para Dynatrace; en Arize
+    # duplicaría el span LLM de OpenInference, así que aquí se descarta.
+    - IsMatch(scope.name, "^com\\.anthropic\\.sdk")

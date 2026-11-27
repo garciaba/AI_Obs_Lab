@@ -12,7 +12,7 @@ Cada escenario se lanza con `task scenario:<nombre>`, se revierte solo y tiene s
 | 6 | [Prompt injection](prompt-injection.md) | `task scenario:prompt-injection` | Un ataque que viaja en los datos, no en la petición. |
 | 7 | [Bucle de herramientas](tool-loop.md) | `task scenario:tool-loop` | El agente no falla: gasta. |
 | 8 | [Cambio de modelo](model-swap.md) | `task scenario:model-swap` | Un cambio de modelo es un cambio de versión: se decide comparando calidad (Arize AX) frente a coste y latencia (Dynatrace). |
-| 9 | [Throttling de Bedrock](bedrock-throttling.md) | `task scenario:bedrock-throttling` | Fallo de una dependencia externa: se ve en los dos productos, con papeles distintos. |
+| 9 | [Throttling de Vertex AI](vertex-throttling.md) | `task scenario:vertex-throttling` | Fallo de una dependencia externa: se ve en los dos productos, con papeles distintos. |
 
 ## Guión de demo sugerido (20 minutos)
 
